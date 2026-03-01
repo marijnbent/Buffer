@@ -47,10 +47,16 @@ class ClipboardStore: ObservableObject {
         // Insert at beginning (newest first)
         items.insert(item, at: 0)
         
-        // Evict oldest if over limit
+        // Evict oldest unbookmarked item if over limit
         if items.count > maxItems {
-            let removed = items.removeLast()
-            deleteImageFile(for: removed)
+            if let indexToRemove = items.lastIndex(where: { !$0.isBookmarked }) {
+                let removed = items.remove(at: indexToRemove)
+                deleteImageFile(for: removed)
+            } else {
+                // If all are bookmarked (rare), just remove the oldest one
+                let removed = items.removeLast()
+                deleteImageFile(for: removed)
+            }
         }
         
         print("[Buffer] Store: New count: \(items.count)")
@@ -66,6 +72,20 @@ class ClipboardStore: ObservableObject {
         items.removeAll { $0.id == item.id }
         deleteImageFile(for: item)
         
+        let itemsToSave = items
+        saveQueue.async { [weak self] in
+            self?.saveHistoryToDisk(itemsToSave)
+        }
+    }
+    
+    /// Toggle bookmark state for an item
+    func toggleBookmark(for item: ClipboardItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        
+        // Items must be mutated
+        items[index].isBookmarked.toggle()
+        
+        // Save updated state to disk
         let itemsToSave = items
         saveQueue.async { [weak self] in
             self?.saveHistoryToDisk(itemsToSave)

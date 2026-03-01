@@ -14,13 +14,17 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // For image items - filename reference (stored separately)
     let imageFilename: String?
     
-    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, imageFilename: String? = nil) {
+    // Bookmark state
+    var isBookmarked: Bool
+    
+    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, imageFilename: String? = nil, isBookmarked: Bool = false) {
         self.id = id
         self.type = type
         self.timestamp = timestamp
         self.sourceApp = sourceApp
         self.textContent = textContent
         self.imageFilename = imageFilename
+        self.isBookmarked = isBookmarked
     }
     
     /// Create a text clipboard item

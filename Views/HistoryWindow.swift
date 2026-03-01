@@ -182,9 +182,15 @@ struct HistoryContentView: View {
             onDelete: {
                 if let item = selectedItem {
                     store.delete(item)
+                    // Clear search or reset selection if needed, but the array update will re-render
                 }
             },
-            onCopy: { if let item = selectedItem { onCopyToClipboard(item) } }
+            onCopy: { if let item = selectedItem { onCopyToClipboard(item) } },
+            onBookmark: {
+                if let item = selectedItem {
+                    store.toggleBookmark(for: item)
+                }
+            }
         ))
     }
     
@@ -287,16 +293,18 @@ struct HistoryContentView: View {
                     .buttonStyle(.plain)
                     .help("Copy")
                     
-                    Button(action: {}) {
-                        Image(systemName: "star")
+                    Button(action: { if let item = selectedItem { store.toggleBookmark(for: item) } }) {
+                        Image(systemName: selectedItem?.isBookmarked == true ? "star.fill" : "star")
                     }
                     .buttonStyle(.plain)
-                    .help("Favorite")
+                    .foregroundColor(selectedItem?.isBookmarked == true ? .yellow : .secondary)
+                    .help(selectedItem?.isBookmarked == true ? "Remove Bookmark" : "Bookmark")
                     
-                    Button(action: {}) {
-                        Image(systemName: "ellipsis")
+                    Button(action: { if let item = selectedItem { store.delete(item) } }) {
+                        Image(systemName: "trash")
                     }
                     .buttonStyle(.plain)
+                    .help("Delete")
                 }
                 .foregroundColor(.secondary)
                 .font(.system(size: 13))
@@ -456,6 +464,7 @@ struct GlobalKeyMonitor: NSViewRepresentable {
     let onEscape: () -> Void
     let onDelete: () -> Void
     let onCopy: () -> Void
+    let onBookmark: () -> Void
     
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -497,6 +506,12 @@ struct GlobalKeyMonitor: NSViewRepresentable {
                 case 8: // C (for Copy)
                     if event.modifierFlags.contains(.command) {
                         onCopy()
+                        return nil
+                    }
+                    return event
+                case 11: // B (for Bookmark)
+                    if event.modifierFlags.contains(.command) {
+                        onBookmark()
                         return nil
                     }
                     return event
