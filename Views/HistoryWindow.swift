@@ -158,14 +158,13 @@ struct HistoryContentView: View {
         .onChange(of: searchText) { _ in
             selectedIndex = 0
         }
-        .onChange(of: selectedIndex) { _ in
-            // Clear preview image when selection changes
+        .task(id: selectedItem?.id) {
+            // Clear preview
             previewImage = nil
+            
             // Load new preview async
-            if let item = filteredItems[safe: selectedIndex], item.type == .image {
-                Task {
-                    previewImage = await loadPreviewImage(for: item)
-                }
+            if let item = selectedItem, item.type == .image {
+                previewImage = await loadPreviewImage(for: item)
             }
         }
         .background(GlobalKeyMonitor(
