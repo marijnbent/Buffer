@@ -78,17 +78,20 @@ codesign --force --deep --sign - --entitlements Buffer.entitlements build/${APP_
 echo "🧼 Removing quarantine attribute..."
 xattr -cr build/${APP_NAME}.app
 
+echo "🔗 Adding Applications shortcut to DMG folder..."
+ln -s /Applications build/Applications
+
 echo "💿 Creating DMG..."
 hdiutil create \
   -volname "${APP_NAME}" \
-  -srcfolder build/${APP_NAME}.app \
+  -srcfolder build \
   -ov \
   -format UDZO \
-  build/${APP_NAME}.dmg
+  Buffer_Release.dmg
 
 echo "🧼 Removing quarantine from DMG..."
-xattr -cr build/${APP_NAME}.dmg
+xattr -cr Buffer_Release.dmg
 
 echo ""
-echo "✅ Done! DMG is located at: build/${APP_NAME}.dmg"
+echo "✅ Done! DMG is located at: Buffer_Release.dmg"
 echo "   If macOS still complains, run:  xattr -cr /path/to/Buffer.app"

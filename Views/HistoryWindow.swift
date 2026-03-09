@@ -114,6 +114,8 @@ struct HistoryContentView: View {
     @State private var searchText = ""
     @State private var selectedIndex = 0
     @State private var previewImage: NSImage?
+    @State private var fullTextPreview: String?
+    @State private var isLoadingText = false
     @State private var scrollTrigger = false  // Triggers scroll on keyboard navigation
     
     private var filteredItems: [ClipboardItem] {
@@ -161,10 +163,18 @@ struct HistoryContentView: View {
         .task(id: selectedItem?.id) {
             // Clear preview
             previewImage = nil
+            fullTextPreview = nil
+            isLoadingText = false
             
             // Load new preview async
-            if let item = selectedItem, item.type == .image {
-                previewImage = await loadPreviewImage(for: item)
+            if let item = selectedItem {
+                if item.type == .image {
+                    previewImage = await loadPreviewImage(for: item)
+                } else if item.type == .text && item.isFileBacked {
+                    isLoadingText = true
+                    fullTextPreview = await loadFullText(for: item)
+                    isLoadingText = false
+                }
             }
         }
         .background(GlobalKeyMonitor(
@@ -198,6 +208,15 @@ struct HistoryContentView: View {
             DispatchQueue.global(qos: .userInitiated).async {
                 let img = store.image(for: item)
                 continuation.resume(returning: img)
+            }
+        }
+    }
+    
+    private func loadFullText(for item: ClipboardItem) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let text = store.fullText(for: item)
+                continuation.resume(returning: text)
             }
         }
     }
@@ -274,12 +293,24 @@ struct HistoryContentView: View {
                 Spacer()
                 
                 if let item = selectedItem {
-                    Text(item.type == .text ? "Text" : "Image")
-                        .font(.system(size: 11, weight: .medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.accentColor.opacity(0.2))
-                        .cornerRadius(4)
+                    HStack(spacing: 6) {
+                        Text(item.type == .text ? "Text" : "Image")
+                        
+                        if item.isFileBacked {
+                            Text("Large")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.8))
+                                .cornerRadius(4)
+                        }
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.2))
+                    .cornerRadius(4)
                 }
                 
                 Spacer()
@@ -333,10 +364,28 @@ struct HistoryContentView: View {
     private func itemContent(_ item: ClipboardItem) -> some View {
         switch item.type {
         case .text:
-            Text(item.textContent ?? "")
-                .font(.system(size: 13, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+            if item.isFileBacked {
+                if isLoadingText {
+                    VStack {
+                        ProgressView()
+                            .padding()
+                        Text("Loading large text...")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Text(fullTextPreview ?? item.textContent ?? "")
+                        .font(.system(size: 13, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            } else {
+                Text(item.textContent ?? "")
+                    .font(.system(size: 13, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         case .image:
             if let img = previewImage {
                 Image(nsImage: img)

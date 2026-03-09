@@ -23,6 +23,10 @@ class ClipboardStore: ObservableObject {
         storageDirectory.appendingPathComponent("images", isDirectory: true)
     }
     
+    private var textsDirectory: URL {
+        storageDirectory.appendingPathComponent("texts", isDirectory: true)
+    }
+    
     init() {
         ensureDirectoriesExist()
         loadHistory()
@@ -51,11 +55,11 @@ class ClipboardStore: ObservableObject {
         if items.count > maxItems {
             if let indexToRemove = items.lastIndex(where: { !$0.isBookmarked }) {
                 let removed = items.remove(at: indexToRemove)
-                deleteImageFile(for: removed)
+                deleteAssociatedFiles(for: removed)
             } else {
                 // If all are bookmarked (rare), just remove the oldest one
                 let removed = items.removeLast()
-                deleteImageFile(for: removed)
+                deleteAssociatedFiles(for: removed)
             }
         }
         
@@ -70,7 +74,7 @@ class ClipboardStore: ObservableObject {
     
     func delete(_ item: ClipboardItem) {
         items.removeAll { $0.id == item.id }
-        deleteImageFile(for: item)
+        deleteAssociatedFiles(for: item)
         
         let itemsToSave = items
         saveQueue.async { [weak self] in
@@ -111,9 +115,9 @@ class ClipboardStore: ObservableObject {
     }
     
     func clear() {
-        // Delete all image files
+        // Delete all associated files
         for item in items {
-            deleteImageFile(for: item)
+            deleteAssociatedFiles(for: item)
         }
         items.removeAll()
         
@@ -141,11 +145,39 @@ class ClipboardStore: ObservableObject {
         }
     }
     
+    /// Save large text to a file and return the filename
+    func saveText(_ text: String) -> String? {
+        let filename = UUID().uuidString + ".txt"
+        let url = textsDirectory.appendingPathComponent(filename)
+        
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            return filename
+        } catch {
+            print("[Buffer] Failed to save text file: \(error)")
+            return nil
+        }
+    }
+    
+    /// Load full text content from file (lazy loading for large text)
+    func fullText(for item: ClipboardItem) -> String? {
+        guard let filename = item.textFilename else { return item.textContent }
+        let url = textsDirectory.appendingPathComponent(filename)
+        
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            print("[Buffer] Failed to load text file: \(error)")
+            return item.textContent // Fallback to inline preview
+        }
+    }
+    
     // MARK: - Private
     
     private func ensureDirectoriesExist() {
         try? fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: textsDirectory, withIntermediateDirectories: true)
     }
     
     private func loadHistory() {
@@ -177,5 +209,17 @@ class ClipboardStore: ObservableObject {
         guard item.type == .image, let filename = item.imageFilename else { return }
         let url = imagesDirectory.appendingPathComponent(filename)
         try? fileManager.removeItem(at: url)
+    }
+    
+    private func deleteTextFile(for item: ClipboardItem) {
+        guard let filename = item.textFilename else { return }
+        let url = textsDirectory.appendingPathComponent(filename)
+        try? fileManager.removeItem(at: url)
+    }
+    
+    /// Delete all associated files (images and text files) for an item
+    private func deleteAssociatedFiles(for item: ClipboardItem) {
+        deleteImageFile(for: item)
+        deleteTextFile(for: item)
     }
 }

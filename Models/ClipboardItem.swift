@@ -8,21 +8,25 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     let timestamp: Date
     let sourceApp: String?
     
-    // For text items X
+    // For text items — inline content (nil for file-backed large text)
     let textContent: String?
     
-    // For image items - filename reference (stored separately)
+    // For large text items — filename reference (stored separately, like images)
+    let textFilename: String?
+    
+    // For image items — filename reference (stored separately)
     let imageFilename: String?
     
     // Bookmark state
     var isBookmarked: Bool
     
-    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, imageFilename: String? = nil, isBookmarked: Bool = false) {
+    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, textFilename: String? = nil, imageFilename: String? = nil, isBookmarked: Bool = false) {
         self.id = id
         self.type = type
         self.timestamp = timestamp
         self.sourceApp = sourceApp
         self.textContent = textContent
+        self.textFilename = textFilename
         self.imageFilename = imageFilename
         self.isBookmarked = isBookmarked
     }
@@ -43,6 +47,21 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             sourceApp: sourceApp,
             imageFilename: filename
         )
+    }
+    
+    /// Create a large text clipboard item (file-backed with inline preview)
+    static func largeText(preview: String, filename: String, sourceApp: String? = nil) -> ClipboardItem {
+        ClipboardItem(
+            type: .text,
+            sourceApp: sourceApp,
+            textContent: preview,
+            textFilename: filename
+        )
+    }
+    
+    /// Whether this item's full text is stored in a separate file
+    var isFileBacked: Bool {
+        textFilename != nil
     }
     
     /// Preview text for display (truncated for long content)

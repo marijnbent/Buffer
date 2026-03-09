@@ -10,7 +10,8 @@ class PasteController {
         
         switch item.type {
         case .text:
-            if let text = item.textContent {
+            // Use full text from file if file-backed, otherwise use inline content
+            if let text = store.fullText(for: item) {
                 pasteboard.setString(text, forType: .string)
             }
         case .image:

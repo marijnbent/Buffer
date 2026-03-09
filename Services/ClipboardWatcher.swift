@@ -14,6 +14,11 @@ class ClipboardWatcher: ObservableObject {
     
     private let pollInterval: TimeInterval = 0.5
     
+    // Size thresholds for text handling
+    private let inlineTextLimit = 50_000       // 50 KB — store inline
+    private let maxTextFileSize = 5_000_000    // 5 MB — store as file
+    private let previewLength = 500            // Characters kept as inline preview
+    
     init(store: ClipboardStore) {
         self.store = store
         self.lastChangeCount = NSPasteboard.general.changeCount
@@ -80,13 +85,35 @@ class ClipboardWatcher: ObservableObject {
         
         // Try to capture text first
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
-            let hash = text.hashValue
+            let textSize = text.utf8.count
+            
+            // Use prefix hash for large text to avoid expensive full-string hashing
+            let hashSource = textSize > inlineTextLimit ? String(text.prefix(10_000)) : text
+            let hash = hashSource.hashValue
             
             // Skip consecutive duplicates
             if hash != lastContentHash {
                 lastContentHash = hash
-                let item = ClipboardItem.text(text, sourceApp: sourceApp)
-                store.add(item)
+                
+                if textSize <= inlineTextLimit {
+                    // Small text: store inline (current behavior)
+                    let item = ClipboardItem.text(text, sourceApp: sourceApp)
+                    store.add(item)
+                } else if textSize <= maxTextFileSize {
+                    // Large text: save to file, store preview inline
+                    let preview = String(text.prefix(previewLength))
+                    if let filename = store.saveText(text) {
+                        let item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
+                        store.add(item)
+                        print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
+                    }
+                } else {
+                    // Extreme text: store preview only, skip file
+                    let preview = String(text.prefix(previewLength)) + "\n\n[Text too large to store — \(textSize / 1_000_000) MB]"
+                    let item = ClipboardItem.text(preview, sourceApp: sourceApp)
+                    store.add(item)
+                    print("[Buffer] Extreme text (\(textSize / 1_000_000) MB) — stored preview only")
+                }
             }
             return
         }
