@@ -20,7 +20,10 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // Bookmark state
     var isBookmarked: Bool
     
-    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, textFilename: String? = nil, imageFilename: String? = nil, isBookmarked: Bool = false) {
+    // Extracted OCR text (persisted after first extraction)
+    var ocrText: String?
+    
+    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, textFilename: String? = nil, imageFilename: String? = nil, isBookmarked: Bool = false, ocrText: String? = nil) {
         self.id = id
         self.type = type
         self.timestamp = timestamp
@@ -29,6 +32,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
         self.textFilename = textFilename
         self.imageFilename = imageFilename
         self.isBookmarked = isBookmarked
+        self.ocrText = ocrText
     }
     
     /// Create a text clipboard item

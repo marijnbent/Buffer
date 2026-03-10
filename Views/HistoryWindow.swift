@@ -119,7 +119,6 @@ struct HistoryContentView: View {
     @State private var scrollTrigger = false  // Triggers scroll on keyboard navigation
     
     // OCR state
-    @State private var extractedOCRText: String?
     @State private var isExtractingText = false
     
     // Track selection by ID so it survives list insertions
@@ -182,7 +181,6 @@ struct HistoryContentView: View {
             // Clear preview
             previewImage = nil
             fullTextPreview = nil
-            extractedOCRText = nil
             isExtractingText = false
             isLoadingText = false
             
@@ -343,17 +341,16 @@ struct HistoryContentView: View {
                     .buttonStyle(.plain)
                     .help("Copy")
                     
-                    // OCR button — only for image items
-                    if selectedItem?.type == .image && previewImage != nil {
+                    // OCR button — only for image items without existing OCR text
+                    if selectedItem?.type == .image && previewImage != nil && selectedItem?.ocrText == nil {
                         Button(action: {
                             Task {
-                                guard let img = previewImage else { return }
+                                guard let img = previewImage, let item = selectedItem else { return }
                                 isExtractingText = true
-                                extractedOCRText = await OCRService.shared.recognizeText(from: img)
+                                let result = await OCRService.shared.recognizeText(from: img)
+                                let text = result ?? "No text found in this image."
+                                store.setOCRText(text, for: item)
                                 isExtractingText = false
-                                if extractedOCRText == nil {
-                                    extractedOCRText = "No text found in this image."
-                                }
                             }
                         }) {
                             Image(systemName: isExtractingText ? "ellipsis.circle" : "text.viewfinder")
@@ -444,7 +441,7 @@ struct HistoryContentView: View {
                     ProgressView()
                         .controlSize(.small)
                         .padding(.vertical, 12)
-                } else if let ocrText = extractedOCRText {
+                } else if let ocrText = item.ocrText {
                     VStack(alignment: .leading, spacing: 0) {
                         Rectangle()
                             .fill(Color.primary.opacity(0.06))

@@ -96,6 +96,17 @@ class ClipboardStore: ObservableObject {
         }
     }
     
+    /// Save extracted OCR text for an image item
+    func setOCRText(_ text: String, for item: ClipboardItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[index].ocrText = text
+        
+        let itemsToSave = items
+        saveQueue.async { [weak self] in
+            self?.saveHistoryToDisk(itemsToSave)
+        }
+    }
+    
     /// Move an item to the top of the list (most recent position)
     func moveToTop(_ item: ClipboardItem) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
