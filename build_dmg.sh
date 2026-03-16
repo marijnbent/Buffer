@@ -1,97 +1,128 @@
 #!/bin/bash
 set -e
 
-APP_NAME="Buffer"
-BUNDLE_ID="com.samirpatil.Buffer"
-DEPLOY_TARGET="13.0"
+echo "📦 Loading environment..."
+set -a # automatically export all variables
+source .env
+set +a
 
-echo "🧹 Cleaning up old build..."
-rm -rf build
-mkdir -p build/${APP_NAME}.app/Contents/MacOS
-mkdir -p build/${APP_NAME}.app/Contents/Resources
+BUILD_DIR="build"
+APP_DIR="${BUILD_DIR}/${APP_NAME}.app"
+DMG_DIR="dmg"
 
-echo "🔨 Compiling Swift files..."
+echo "🧹 Cleaning..."
+rm -rf build dmg ${APP_NAME}_Release.dmg
+
+mkdir -p ${APP_DIR}/Contents/MacOS
+mkdir -p ${APP_DIR}/Contents/Resources
+
+echo "🔨 Compiling Swift..."
 swiftc \
-  -sdk $(xcrun --show-sdk-path --sdk macosx) \
-  -target $(uname -m)-apple-macosx${DEPLOY_TARGET} \
-  -parse-as-library \
-  -framework Cocoa \
-  -framework SwiftUI \
-  -framework Carbon \
-  *.swift Models/*.swift Services/*.swift Views/*.swift \
-  -o build/${APP_NAME}.app/Contents/MacOS/${APP_NAME}
+-sdk $(xcrun --show-sdk-path --sdk macosx) \
+-target $(uname -m)-apple-macosx${DEPLOY_TARGET} \
+-parse-as-library \
+-framework Cocoa \
+-framework SwiftUI \
+-framework Carbon \
+*.swift Models/*.swift Services/*.swift Views/*.swift \
+-o ${APP_DIR}/Contents/MacOS/${APP_NAME}
 
-echo "📋 Creating resolved Info.plist..."
-cat > build/${APP_NAME}.app/Contents/Info.plist << 'PLIST'
+echo "📋 Creating Info.plist..."
+
+cat > ${APP_DIR}/Contents/Info.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleExecutable</key>
-	<string>Buffer</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleIconName</key>
-	<string>AppIcon</string>
-	<key>LSApplicationCategoryType</key>
-	<string></string>
-	<key>CFBundleIdentifier</key>
-	<string>com.samirpatil.Buffer</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>Buffer</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2024. All rights reserved.</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
+
+<key>CFBundleExecutable</key>
+<string>${APP_NAME}</string>
+
+<key>CFBundleIdentifier</key>
+<string>${BUNDLE_ID}</string>
+
+<key>CFBundleName</key>
+<string>${APP_NAME}</string>
+
+<key>CFBundlePackageType</key>
+<string>APPL</string>
+
+<key>CFBundleShortVersionString</key>
+<string>1.0</string>
+
+<key>CFBundleVersion</key>
+<string>1</string>
+
+<key>LSMinimumSystemVersion</key>
+<string>${DEPLOY_TARGET}</string>
+
+<key>LSUIElement</key>
+<true/>
+
+<key>NSPrincipalClass</key>
+<string>NSApplication</string>
+
 </dict>
 </plist>
-PLIST
+EOF
 
-echo "🎨 Compiling Assets..."
+echo "🎨 Building assets..."
+
 xcrun actool Assets.xcassets \
-  --compile build/${APP_NAME}.app/Contents/Resources \
-  --platform macosx \
-  --minimum-deployment-target ${DEPLOY_TARGET} \
-  --app-icon AppIcon \
-  --output-partial-info-plist build/partial.plist 2>/dev/null
+--compile ${APP_DIR}/Contents/Resources \
+--platform macosx \
+--minimum-deployment-target ${DEPLOY_TARGET} \
+--app-icon AppIcon
 
-echo "📦 Writing PkgInfo..."
-echo "APPL????" > build/${APP_NAME}.app/Contents/PkgInfo
+echo "📦 Creating PkgInfo..."
 
-echo "🔏 Code signing..."
-codesign --force --deep --sign - --entitlements Buffer.entitlements build/${APP_NAME}.app
+echo "APPL????" > ${APP_DIR}/Contents/PkgInfo
 
-echo "🧼 Removing quarantine attribute..."
-xattr -cr build/${APP_NAME}.app
+echo "🔏 Signing..."
 
-echo "🔗 Adding Applications shortcut to DMG folder..."
-ln -s /Applications build/Applications
+codesign \
+--force \
+--deep \
+--timestamp \
+--options runtime \
+--sign "${SIGN_IDENTITY}" \
+--entitlements Buffer.entitlements \
+${APP_DIR}
+
+echo "🔍 Verifying..."
+
+codesign --verify --deep --strict ${APP_DIR}
+
+echo "📂 Preparing DMG..."
+
+mkdir -p ${DMG_DIR}
+
+cp -R ${APP_DIR} ${DMG_DIR}/
+
+ln -s /Applications ${DMG_DIR}/Applications
 
 echo "💿 Creating DMG..."
-hdiutil create \
-  -volname "${APP_NAME}" \
-  -srcfolder build \
-  -ov \
-  -format UDZO \
-  Buffer_Release.dmg
 
-echo "🧼 Removing quarantine from DMG..."
-xattr -cr Buffer_Release.dmg
+hdiutil create \
+-volname "${APP_NAME}" \
+-srcfolder ${DMG_DIR} \
+-ov \
+-format UDZO \
+${APP_NAME}_Release.dmg
+
+echo "📤 Notarizing DMG..."
+xcrun notarytool submit ${APP_NAME}_Release.dmg \
+--keychain-profile "${NOTARY_PROFILE}" \
+--wait
+
+echo "📎 Stapling DMG..."
+
+xcrun stapler staple ${APP_NAME}_Release.dmg
+
+echo "🧼 Cleanup..."
+
+rm -rf ${DMG_DIR}
 
 echo ""
-echo "✅ Done! DMG is located at: Buffer_Release.dmg"
-echo "   If macOS still complains, run:  xattr -cr /path/to/Buffer.app"
+echo "✅ BUILD COMPLETE"
+echo "DMG: ${APP_NAME}_Release.dmg"

@@ -1,4 +1,6 @@
 import Foundation
+import ServiceManagement
+import Combine
 
 /// Manages user preferences for Buffer
 class SettingsManager: ObservableObject {
@@ -12,6 +14,7 @@ class SettingsManager: ObservableObject {
     
     @Published var hotkeyModifiers: HotkeyModifiers
     @Published var hotkeyKeyCode: UInt16
+    @Published var launchAtLogin: Bool = false
     
     private init() {
         // Initialize with defaults first, then load saved values
@@ -28,11 +31,35 @@ class SettingsManager: ObservableObject {
         // Load saved keycode or use default (V key)
         let savedKeyCode = defaults.integer(forKey: hotkeyKeyCodeKey)
         self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : defaultKeyCode
+        
+        // Load launch at login status
+        if #available(macOS 13.0, *) {
+            self.launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
     }
     
     func save() {
         defaults.set(hotkeyModifiers.toArray(), forKey: hotkeyModifiersKey)
         defaults.set(Int(hotkeyKeyCode), forKey: hotkeyKeyCodeKey)
+    }
+    
+    func toggleLaunchAtLogin(_ enabled: Bool) {
+        if #available(macOS 13.0, *) {
+            do {
+                if enabled {
+                    if SMAppService.mainApp.status == .enabled { return }
+                    try SMAppService.mainApp.register()
+                } else {
+                    if SMAppService.mainApp.status == .notRegistered { return }
+                    try SMAppService.mainApp.unregister()
+                }
+                self.launchAtLogin = enabled
+            } catch {
+                print("Failed to toggle Launch at Login: \(error.localizedDescription)")
+                // Revert state if it fails
+                self.launchAtLogin = SMAppService.mainApp.status == .enabled
+            }
+        }
     }
 }
 

@@ -70,3 +70,4 @@ fastlane/test_output
 # Application
 *.app
 *.dmg
+.env

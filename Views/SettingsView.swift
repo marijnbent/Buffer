@@ -78,6 +78,26 @@ struct SettingsView: View {
                 }
             }
             
+            Divider()
+            
+            // System section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("System")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                Toggle("Launch at Login", isOn: $settings.launchAtLogin)
+                    .font(.system(size: 12))
+                    .onChange(of: settings.launchAtLogin) { newValue in
+                        SettingsManager.shared.toggleLaunchAtLogin(newValue)
+                        // Sync back state in case toggle fails 
+                        DispatchQueue.main.async {
+                            settings.launchAtLogin = SettingsManager.shared.launchAtLogin
+                        }
+                    }
+                    .toggleStyle(.switch)
+            }
+            
             Spacer()
             
             // Footer
@@ -166,6 +186,7 @@ class KeyRecorderView: NSView {
 class SettingsViewModel: ObservableObject {
     @Published var hotkeyModifiers: HotkeyModifiers
     @Published var hotkeyKeyCode: UInt16
+    @Published var launchAtLogin: Bool
     
     private let defaults = UserDefaults.standard
     private let hotkeyModifiersKey = "hotkeyModifiers"
@@ -182,6 +203,9 @@ class SettingsViewModel: ObservableObject {
         // Load keycode (default to V = 9)
         let savedKeyCode = defaults.integer(forKey: hotkeyKeyCodeKey)
         self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : 9
+        
+        // Load launch at login status from manager natively via SMAppService
+        self.launchAtLogin = SettingsManager.shared.launchAtLogin
     }
     
     func save() {
