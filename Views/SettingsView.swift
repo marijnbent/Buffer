@@ -211,5 +211,11 @@ class SettingsViewModel: ObservableObject {
     func save() {
         defaults.set(hotkeyModifiers.toArray(), forKey: hotkeyModifiersKey)
         defaults.set(Int(hotkeyKeyCode), forKey: hotkeyKeyCodeKey)
+        
+        SettingsManager.shared.hotkeyModifiers = hotkeyModifiers
+        SettingsManager.shared.hotkeyKeyCode = hotkeyKeyCode
+        SettingsManager.shared.save()
+        
+        NotificationCenter.default.post(name: .bufferHotkeyChanged, object: nil)
     }
 }

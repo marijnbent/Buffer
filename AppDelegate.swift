@@ -23,6 +23,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         
+        // Request Accessibility permissions for global hotkeys
+        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+        
         // Initialize clipboard watcher
         clipboardWatcher = ClipboardWatcher(store: clipboardStore)
         clipboardWatcher?.startWatching()
@@ -44,6 +48,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toggleHistoryWindow()
         }
         hotkeyManager?.register()
+        
+        NotificationCenter.default.addObserver(forName: .bufferHotkeyChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.hotkeyManager?.reregister()
+        }
     }
     
     func applicationWillTerminate(_ notification: Notification) {

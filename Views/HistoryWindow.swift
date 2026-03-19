@@ -102,6 +102,7 @@ class HistoryWindowController: NSWindowController {
 
 extension Notification.Name {
     static let bufferIgnoreNextChange = Notification.Name("bufferIgnoreNextChange")
+    static let bufferHotkeyChanged = Notification.Name("bufferHotkeyChanged")
 }
 
 /// Main content view - Split pane with list and detail
