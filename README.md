@@ -19,20 +19,19 @@
 
 ---
 
-## ✨ Features
-
-- **📋 Clipboard History** — Automatically saves everything you copy (text & images)
-- **⌨️ Global Hotkey** — Instantly access history with `⇧⌘V` (Shift + Command + V)
-- **🔍 Powerful Search** — Quickly find any copied item with real-time search
-- **🖼️ Image Support** — Copy and paste images seamlessly
-- **📱 Menu Bar App** — Lives in your menu bar, never in your way
-- **🎨 Native macOS Design** — Beautiful, minimal interface that feels right at home
-- **⚡ Lightweight** — Uses minimal system resources
-- **🔒 Privacy First** — All data stored locally, nothing leaves your Mac
+### ✨ Why Buffer?
+- **Ultra-lightweight** — Only ~2 MB download/install, minimal RAM/CPU usage
+- **100% Private & Local** — Everything stays on your Mac, no cloud, no tracking
+- **Text + Images + OCR** — Copies anything; extracts searchable text from images/screenshots/memes using on-device Vision
+- **Instant Access** — Global hotkey ⇧⌘V opens history in a flash
+- **Native macOS Feel** — Clean SwiftUI + AppKit menu-bar app
+- **Bookmarks** — Star important items with Cmd+B for quick reuse
+- **Open Source** — MIT license, actively maintained
 
 ---
 
-## 📥 Download
+
+### 📥 Download
 
 <p align="center">
   <a href="https://github.com/samirpatil2000/Buffer/releases/download/v1.0/Buffer.dmg">
@@ -40,10 +39,10 @@
   </a>
 </p>
 
-> **Note:** Buffer is not notarized with Apple Developer ID. On first launch:
-> 1. Right-click on **Buffer.app**
-> 2. Click **Open**
-> 3. Click **Open** in the security dialog
+1. Download the `.dmg` from the latest release
+2. Drag **Buffer.app** to your **Applications** folder
+3. Launch it (lives in menu bar)
+4. **Note (not yet notarized)**: Right-click → Open → confirm in security dialog
 
 ---
 
