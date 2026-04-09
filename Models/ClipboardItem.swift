@@ -7,6 +7,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     let type: ClipboardItemType
     let timestamp: Date
     let sourceApp: String?
+    let sourceBundleIdentifier: String?
     
     // For text items — inline content (nil for file-backed large text)
     let textContent: String?
@@ -17,9 +18,6 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // For image items — filename reference (stored separately)
     let imageFilename: String?
     
-    // Bookmark state
-    var isBookmarked: Bool
-    
     // Extracted OCR text (persisted after first extraction)
     var ocrText: String?
     
@@ -29,53 +27,57 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     // For large/extreme text items — original size in bytes (for display purposes)
     let originalSizeBytes: Int?
     
-    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, textContent: String? = nil, textFilename: String? = nil, imageFilename: String? = nil, isBookmarked: Bool = false, ocrText: String? = nil, isTruncated: Bool = false, originalSizeBytes: Int? = nil) {
+    init(id: UUID = UUID(), type: ClipboardItemType, timestamp: Date = Date(), sourceApp: String? = nil, sourceBundleIdentifier: String? = nil, textContent: String? = nil, textFilename: String? = nil, imageFilename: String? = nil, ocrText: String? = nil, isTruncated: Bool = false, originalSizeBytes: Int? = nil) {
         self.id = id
         self.type = type
         self.timestamp = timestamp
         self.sourceApp = sourceApp
+        self.sourceBundleIdentifier = sourceBundleIdentifier
         self.textContent = textContent
         self.textFilename = textFilename
         self.imageFilename = imageFilename
-        self.isBookmarked = isBookmarked
         self.ocrText = ocrText
         self.isTruncated = isTruncated
         self.originalSizeBytes = originalSizeBytes
     }
     
     /// Create a text clipboard item
-    static func text(_ content: String, sourceApp: String? = nil) -> ClipboardItem {
+    static func text(_ content: String, sourceApp: String? = nil, sourceBundleIdentifier: String? = nil) -> ClipboardItem {
         ClipboardItem(
             type: .text,
             sourceApp: sourceApp,
+            sourceBundleIdentifier: sourceBundleIdentifier,
             textContent: content
         )
     }
     
     /// Create an image clipboard item
-    static func image(filename: String, sourceApp: String? = nil) -> ClipboardItem {
+    static func image(filename: String, sourceApp: String? = nil, sourceBundleIdentifier: String? = nil) -> ClipboardItem {
         ClipboardItem(
             type: .image,
             sourceApp: sourceApp,
+            sourceBundleIdentifier: sourceBundleIdentifier,
             imageFilename: filename
         )
     }
     
     /// Create a large text clipboard item (file-backed with inline preview)
-    static func largeText(preview: String, filename: String, sourceApp: String? = nil) -> ClipboardItem {
+    static func largeText(preview: String, filename: String, sourceApp: String? = nil, sourceBundleIdentifier: String? = nil) -> ClipboardItem {
         ClipboardItem(
             type: .text,
             sourceApp: sourceApp,
+            sourceBundleIdentifier: sourceBundleIdentifier,
             textContent: preview,
             textFilename: filename
         )
     }
     
     /// Create an extremely large text item where only the preview is saved
-    static func truncatedText(_ preview: String, originalSizeBytes: Int, sourceApp: String?) -> ClipboardItem {
+    static func truncatedText(_ preview: String, originalSizeBytes: Int, sourceApp: String?, sourceBundleIdentifier: String? = nil) -> ClipboardItem {
         ClipboardItem(
             type: .text,
             sourceApp: sourceApp,
+            sourceBundleIdentifier: sourceBundleIdentifier,
             textContent: preview,
             isTruncated: true,
             originalSizeBytes: originalSizeBytes

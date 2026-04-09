@@ -73,10 +73,9 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                 
                 HStack(spacing: 8) {
-                    presetButton(label: "⇧⌘V", mods: HotkeyModifiers(shift: true, command: true), keyCode: 9)
+                    presetButton(label: "⌥/", mods: HotkeyModifiers(option: true), keyCode: 44)
                     presetButton(label: "⌥⌘V", mods: HotkeyModifiers(command: true, option: true), keyCode: 9)
                     presetButton(label: "⌃⇧V", mods: HotkeyModifiers(shift: true, control: true), keyCode: 9)
-                    presetButton(label: "⌘B", mods: HotkeyModifiers(command: true), keyCode: 11)
                 }
             }
             
@@ -172,7 +171,7 @@ struct SettingsView: View {
                 }
             }
         } message: {
-            Text("This will permanently delete your oldest unbookmarked items to fit the new size. This action cannot be undone.")
+            Text("This will permanently delete your oldest items to fit the new size. This action cannot be undone.")
         }
         .background(KeyRecorder(isRecording: $isRecording) { keyCode, modifiers in
             settings.hotkeyKeyCode = keyCode
@@ -271,35 +270,14 @@ class SettingsViewModel: ObservableObject {
     @Published var launchAtLogin: Bool
     @Published var historyLimit: HistoryLimit
     
-    private let defaults = UserDefaults.standard
-    private let hotkeyModifiersKey = "hotkeyModifiers"
-    private let hotkeyKeyCodeKey = "hotkeyKeyCode"
-    
     init() {
-        // Load modifiers
-        if let savedMods = defaults.array(forKey: hotkeyModifiersKey) as? [String] {
-            self.hotkeyModifiers = HotkeyModifiers(from: savedMods)
-        } else {
-            self.hotkeyModifiers = HotkeyModifiers(shift: true, command: true, option: false, control: false)
-        }
-        
-        // Load keycode (default to V = 9)
-        let savedKeyCode = defaults.integer(forKey: hotkeyKeyCodeKey)
-        self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : 9
-        
-        // Load launch at login status from manager natively via SMAppService
+        self.hotkeyModifiers = SettingsManager.shared.hotkeyModifiers
+        self.hotkeyKeyCode = SettingsManager.shared.hotkeyKeyCode
         self.launchAtLogin = SettingsManager.shared.launchAtLogin
-        
-        // Load history limit
-        let rawLimit = defaults.integer(forKey: "historyLimit")
-        self.historyLimit = HistoryLimit(rawValue: rawLimit) ?? .essential
+        self.historyLimit = SettingsManager.shared.historyLimit
     }
     
     func save() {
-        defaults.set(hotkeyModifiers.toArray(), forKey: hotkeyModifiersKey)
-        defaults.set(Int(hotkeyKeyCode), forKey: hotkeyKeyCodeKey)
-        defaults.set(historyLimit.rawValue, forKey: "historyLimit")
-        
         SettingsManager.shared.hotkeyModifiers = hotkeyModifiers
         SettingsManager.shared.hotkeyKeyCode = hotkeyKeyCode
         SettingsManager.shared.historyLimit = historyLimit

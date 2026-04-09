@@ -43,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize history window controller
         historyWindowController = HistoryWindowController(store: clipboardStore)
         
-        // Setup global hotkey (Shift + Command + V)
+        // Setup global hotkey (Option + /)
         hotkeyManager = HotkeyManager { [weak self] in
             self?.toggleHistoryWindow()
         }

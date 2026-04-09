@@ -34,7 +34,7 @@ class HistoryWindowController: NSWindowController {
         // Wider window for split pane
         let panel = HistoryPanel(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 480),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .fullSizeContentView],
+            styleMask: [.borderless, .resizable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -59,8 +59,6 @@ class HistoryWindowController: NSWindowController {
         panel.becomesKeyOnlyIfNeeded = false
         panel.hidesOnDeactivate = false
         
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
         panel.backgroundColor = NSColor.windowBackgroundColor
         panel.isMovableByWindowBackground = true
         panel.hasShadow = true
@@ -70,10 +68,6 @@ class HistoryWindowController: NSWindowController {
         panel.contentView?.layer?.masksToBounds = true
         
         panel.center()
-        
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
         
         // Notify content view when window becomes key so it can reset state
         NotificationCenter.default.addObserver(
@@ -186,11 +180,6 @@ struct HistoryContentView: View {
                 detailPane
                     .frame(minWidth: 300)
             }
-            
-            Divider()
-            
-            // Bottom action bar
-            actionBar
         }
         .frame(minWidth: 600, minHeight: 400)
         .background(Color(NSColor.windowBackgroundColor))
@@ -257,12 +246,7 @@ struct HistoryContentView: View {
                     // Clear search or reset selection if needed, but the array update will re-render
                 }
             },
-            onCopy: { if let item = selectedItem { onCopyToClipboard(item) } },
-            onBookmark: {
-                if let item = selectedItem {
-                    store.toggleBookmark(for: item)
-                }
-            }
+            onCopy: { if let item = selectedItem { onCopyToClipboard(item) } }
         ))
     }
     
@@ -424,12 +408,6 @@ struct HistoryContentView: View {
                 
                 // Action buttons
                 HStack(spacing: 12) {
-                    Button(action: { if let item = selectedItem { onCopyToClipboard(item) } }) {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Copy")
-                    
                     // OCR button — only for image items without existing OCR text
                     if selectedItem?.type == .image && previewImage != nil && selectedItem?.ocrText == nil {
                         Button(action: {
@@ -448,19 +426,6 @@ struct HistoryContentView: View {
                         .disabled(isExtractingText)
                         .help("Extract Text from Image")
                     }
-                    
-                    Button(action: { if let item = selectedItem { store.toggleBookmark(for: item) } }) {
-                        Image(systemName: selectedItem?.isBookmarked == true ? "star.fill" : "star")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundColor(selectedItem?.isBookmarked == true ? .yellow : .secondary)
-                    .help(selectedItem?.isBookmarked == true ? "Remove Bookmark" : "Bookmark")
-                    
-                    Button(action: { if let item = selectedItem { store.delete(item) } }) {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Delete")
                 }
                 .foregroundColor(.secondary)
                 .font(.system(size: 13))
@@ -598,91 +563,6 @@ struct HistoryContentView: View {
             selectedIndex += 1
         }
     }
-    
-    private var actionBar: some View {
-        HStack(spacing: 16) {
-            // Navigate buttons - minimal, elegant
-            HStack(spacing: 6) {
-                Button(action: navigateDown) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .shadow(color: Color.black.opacity(0.06), radius: 1, x: 0, y: 1)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                        )
-                }
-                .buttonStyle(.plain)
-                
-                Button(action: navigateUp) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                                .shadow(color: Color.black.opacity(0.06), radius: 1, x: 0, y: 1)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                        )
-                }
-                .buttonStyle(.plain)
-            }
-            
-            Text("Navigate")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundColor(.secondary.opacity(0.8))
-            
-            Spacer()
-            
-            // Keyboard shortcut hint
-            HStack(spacing: 4) {
-                Image(systemName: "return")
-                    .font(.system(size: 10))
-                Text("to paste")
-                    .font(.system(size: 11))
-            }
-            .foregroundColor(.secondary.opacity(0.6))
-            
-            // Paste button - Apple-style, refined
-            Button(action: { if let item = selectedItem { onPaste(item) } }) {
-                HStack(spacing: 5) {
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Paste")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.85))
-                )
-                .foregroundColor(Color(NSColor.windowBackgroundColor))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Color(NSColor.controlBackgroundColor)
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color.primary.opacity(0.06)),
-                    alignment: .top
-                )
-        )
-    }
 }
 
 extension Array {
@@ -699,7 +579,6 @@ struct GlobalKeyMonitor: NSViewRepresentable {
     let onEscape: () -> Void
     let onDelete: () -> Void
     let onCopy: () -> Void
-    let onBookmark: () -> Void
     
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -745,12 +624,6 @@ struct GlobalKeyMonitor: NSViewRepresentable {
                             return event
                         }
                         onCopy()
-                        return nil
-                    }
-                    return event
-                case 11: // B (for Bookmark)
-                    if event.modifierFlags.contains(.command) {
-                        onBookmark()
                         return nil
                     }
                     return event

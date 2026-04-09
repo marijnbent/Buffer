@@ -8,6 +8,7 @@ struct ClipboardItemRow: View {
     
     @State private var isHovered = false
     @State private var thumbnail: NSImage?
+    @State private var sourceAppIcon: NSImage?
     
     private var backgroundColor: Color {
         if isSelected {
@@ -44,18 +45,22 @@ struct ClipboardItemRow: View {
             
             Spacer(minLength: 0)
             
-            // Bookmark indicator
-            if item.isBookmarked {
-                Image(systemName: "star.fill")
-                    .foregroundColor(.yellow)
-                    .font(.system(size: 10))
-            }
-            
-            // Source app badge
+            // Source app icon
             if let app = item.sourceApp {
-                Text(app)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                Group {
+                    if let icon = sourceAppIcon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                    } else {
+                        Image(systemName: "app.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                }
+                .frame(width: 14, height: 14)
+                .help(app)
             }
         }
         .padding(.horizontal, 12)
@@ -66,6 +71,11 @@ struct ClipboardItemRow: View {
             isHovered = hovering
         }
         .task(id: item.id) {
+            sourceAppIcon = nil
+            if item.sourceBundleIdentifier != nil || item.sourceApp != nil {
+                sourceAppIcon = await loadSourceAppIcon()
+            }
+            
             // Load thumbnail async off main thread
             if item.type == .image && thumbnail == nil {
                 thumbnail = await loadThumbnail()
@@ -120,6 +130,31 @@ struct ClipboardItemRow: View {
                 thumb.unlockFocus()
                 
                 continuation.resume(returning: thumb)
+            }
+        }
+    }
+
+    private func loadSourceAppIcon() async -> NSImage? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                if let bundleIdentifier = item.sourceBundleIdentifier,
+                   let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+                    let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+                    icon.size = NSSize(width: 16, height: 16)
+                    continuation.resume(returning: icon)
+                    return
+                }
+
+                if let appName = item.sourceApp,
+                   let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == appName }),
+                   let appURL = runningApp.bundleURL {
+                    let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+                    icon.size = NSSize(width: 16, height: 16)
+                    continuation.resume(returning: icon)
+                    return
+                }
+
+                continuation.resume(returning: nil)
             }
         }
     }

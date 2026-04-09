@@ -24,9 +24,8 @@
 - **100% Private & Local** — Everything stays on your Mac, no cloud, no tracking
 - **Text + Images + OCR** — Copies anything; extracts searchable text from images/screenshots/memes using on-device Vision
 - **Great for developers** — Handles large text snippets, JSON payloads, logs, and other verbose content with ease
-- **Instant Access** — Global hotkey ⇧⌘V opens history in a flash
+- **Instant Access** — Global hotkey ⌥/ opens history in a flash
 - **Native macOS Feel** — Clean SwiftUI + AppKit menu-bar app
-- **Bookmarks** — Star important items with Cmd+B for quick reuse
 - **Open Source** — MIT license, actively maintained
 
 ---
@@ -53,7 +52,7 @@
 2. **Drag** Buffer to your Applications folder
 3. **Launch** Buffer — it will appear in your menu bar
 4. **Copy** anything — Buffer automatically saves it
-5. Press **⇧⌘V** to access your clipboard history anytime!
+5. Press **⌥/** to access your clipboard history anytime!
 
 ---
 
@@ -74,7 +73,7 @@
 
 | Shortcut | Action |
 |----------|--------|
-| `⇧⌘V` | Open clipboard history |
+| `⌥/` | Open clipboard history |
 | `↑` / `↓` | Navigate items |
 | `↵` Enter | Paste selected item |
 | `⎋` Esc | Close history window |

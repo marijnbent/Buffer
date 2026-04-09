@@ -80,7 +80,9 @@ class ClipboardWatcher: ObservableObject {
         }
         
         // Get current frontmost app as source
-        let sourceApp = NSWorkspace.shared.frontmostApplication?.localizedName
+        let sourceApplication = NSWorkspace.shared.frontmostApplication
+        let sourceApp = sourceApplication?.localizedName
+        let sourceBundleIdentifier = sourceApplication?.bundleIdentifier
         
         // Try to capture text first
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
@@ -96,13 +98,13 @@ class ClipboardWatcher: ObservableObject {
                 
                 if textSize <= inlineTextLimit {
                     // Small text: store inline (current behavior)
-                    let item = ClipboardItem.text(text, sourceApp: sourceApp)
+                    let item = ClipboardItem.text(text, sourceApp: sourceApp, sourceBundleIdentifier: sourceBundleIdentifier)
                     store.add(item)
                 } else {
                     // Large text: save to file, store preview inline
                     let preview = String(text.prefix(previewLength))
                     if let filename = store.saveText(text) {
-                        let item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp)
+                        let item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp, sourceBundleIdentifier: sourceBundleIdentifier)
                         store.add(item)
                         print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
                     }
@@ -121,7 +123,7 @@ class ClipboardWatcher: ObservableObject {
                 
                 // Save image to disk
                 if let filename = store.saveImage(imageData) {
-                    let item = ClipboardItem.image(filename: filename, sourceApp: sourceApp)
+                    let item = ClipboardItem.image(filename: filename, sourceApp: sourceApp, sourceBundleIdentifier: sourceBundleIdentifier)
                     store.add(item)
                 }
             }

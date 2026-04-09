@@ -28,6 +28,9 @@ enum HistoryLimit: Int, CaseIterable, Codable {
 /// Manages user preferences for Buffer
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
+
+    static let defaultHotkeyModifiers = HotkeyModifiers(option: true)
+    static let defaultHotkeyKeyCode: UInt16 = 44  // / key
     
     private let defaults = UserDefaults.standard
     
@@ -41,20 +44,16 @@ class SettingsManager: ObservableObject {
     @Published var historyLimit: HistoryLimit = .essential
     
     private init() {
-        // Initialize with defaults first, then load saved values
-        let defaultMods = HotkeyModifiers(shift: true, command: true, option: false, control: false)
-        let defaultKeyCode: UInt16 = 9  // V key
-        
         // Load saved modifiers or use default
         if let savedMods = defaults.array(forKey: hotkeyModifiersKey) as? [String] {
             self.hotkeyModifiers = HotkeyModifiers(from: savedMods)
         } else {
-            self.hotkeyModifiers = defaultMods
+            self.hotkeyModifiers = Self.defaultHotkeyModifiers
         }
         
-        // Load saved keycode or use default (V key)
+        // Load saved keycode or use default (/ key)
         let savedKeyCode = defaults.integer(forKey: hotkeyKeyCodeKey)
-        self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : defaultKeyCode
+        self.hotkeyKeyCode = savedKeyCode > 0 ? UInt16(savedKeyCode) : Self.defaultHotkeyKeyCode
         
         // Load launch at login status
         if #available(macOS 13.0, *) {

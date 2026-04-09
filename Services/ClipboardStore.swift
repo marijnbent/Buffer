@@ -41,15 +41,10 @@ class ClipboardStore: ObservableObject {
     
     @objc private func handleLimitChanged() {
         guard items.count > maxItems else { return }
-        // Trim from tail, bookmarked items survive
         var trimmed = items
         while trimmed.count > maxItems {
-            if let idx = trimmed.lastIndex(where: { !$0.isBookmarked }) {
-                deleteAssociatedFiles(for: trimmed[idx])
-                trimmed.remove(at: idx)
-            } else {
-                break // All remaining are bookmarked — respect them
-            }
+            let removed = trimmed.removeLast()
+            deleteAssociatedFiles(for: removed)
         }
         items = trimmed
         saveQueue.async { [weak self] in self?.saveHistoryToDisk(trimmed) }
@@ -74,16 +69,10 @@ class ClipboardStore: ObservableObject {
         // Insert at beginning (newest first)
         items.insert(item, at: 0)
         
-        // Evict oldest unbookmarked item if over limit
+        // Evict oldest item if over limit
         if items.count > maxItems {
-            if let indexToRemove = items.lastIndex(where: { !$0.isBookmarked }) {
-                let removed = items.remove(at: indexToRemove)
-                deleteAssociatedFiles(for: removed)
-            } else {
-                // If all are bookmarked (rare), just remove the oldest one
-                let removed = items.removeLast()
-                deleteAssociatedFiles(for: removed)
-            }
+            let removed = items.removeLast()
+            deleteAssociatedFiles(for: removed)
         }
         
         print("[Buffer] Store: New count: \(items.count)")
@@ -99,20 +88,6 @@ class ClipboardStore: ObservableObject {
         items.removeAll { $0.id == item.id }
         deleteAssociatedFiles(for: item)
         
-        let itemsToSave = items
-        saveQueue.async { [weak self] in
-            self?.saveHistoryToDisk(itemsToSave)
-        }
-    }
-    
-    /// Toggle bookmark state for an item
-    func toggleBookmark(for item: ClipboardItem) {
-        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
-        
-        // Items must be mutated
-        items[index].isBookmarked.toggle()
-        
-        // Save updated state to disk
         let itemsToSave = items
         saveQueue.async { [weak self] in
             self?.saveHistoryToDisk(itemsToSave)
