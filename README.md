@@ -40,7 +40,7 @@
 </p>
 
 1. Download the `.dmg` from the latest release
-2. Drag **Buffer.app** to your **Applications** folder
+2. Drag **cliphis.app** to your **Applications** folder
 3. Launch it (lives in menu bar)
 4. **Note (not yet notarized)**: Right-click → Open → confirm in security dialog
 
@@ -85,10 +85,10 @@
 ```bash
 # Clone the repository
 git clone https://github.com/samirpatil2000/Buffer.git
-cd Buffer
+cd cliphis
 
 # Open in Xcode
-open Buffer.xcodeproj
+open cliphis.xcodeproj
 
 # Build and run
 # Press ⌘R in Xcode
@@ -104,8 +104,8 @@ open Buffer.xcodeproj
 ## 📁 Project Structure
 
 ```
-Buffer/
-├── BufferApp.swift          # App entry point
+cliphis/
+├── CliphisApp.swift         # App entry point
 ├── AppDelegate.swift        # App lifecycle & hotkey setup
 ├── Models/
 │   └── ClipboardItem.swift  # Clipboard item data model

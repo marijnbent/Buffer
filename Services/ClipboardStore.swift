@@ -2,6 +2,12 @@ import Foundation
 import AppKit
 import Combine
 
+struct ClipboardTextChunkSource: Sendable {
+    let fileURL: URL?
+    let inlineText: String
+    let originalSizeBytes: Int?
+}
+
 /// Manages persistent storage of clipboard history
 class ClipboardStore: ObservableObject {
     @Published var items: [ClipboardItem] = []
@@ -183,10 +189,28 @@ class ClipboardStore: ObservableObject {
     
     /// Load a chunk of text content, reading only what's necessary
     func textChunk(for item: ClipboardItem, charCount: Int) -> (text: String, totalBytes: Int, reachedEOF: Bool)? {
+        Self.readTextChunk(from: textChunkSource(for: item), charCount: charCount)
+    }
+
+    func textChunkSource(for item: ClipboardItem) -> ClipboardTextChunkSource {
         if let filename = item.textFilename {
+            return ClipboardTextChunkSource(
+                fileURL: textsDirectory.appendingPathComponent(filename),
+                inlineText: "",
+                originalSizeBytes: item.originalSizeBytes
+            )
+        } else {
+            return ClipboardTextChunkSource(
+                fileURL: nil,
+                inlineText: item.textContent ?? "",
+                originalSizeBytes: item.originalSizeBytes
+            )
+        }
+    }
+
+    static func readTextChunk(from source: ClipboardTextChunkSource, charCount: Int) -> (text: String, totalBytes: Int, reachedEOF: Bool)? {
+        if let url = source.fileURL {
             // File-backed large text
-            let url = textsDirectory.appendingPathComponent(filename)
-            
             do {
                 // Get total size from attributes without reading file
                 let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -217,8 +241,8 @@ class ClipboardStore: ObservableObject {
             }
         } else {
             // Inline text
-            let content = item.textContent ?? ""
-            let totalBytes = item.originalSizeBytes ?? content.utf8.count
+            let content = source.inlineText
+            let totalBytes = source.originalSizeBytes ?? content.utf8.count
             
             let prefix = String(content.prefix(charCount))
             let reachedEOF = content.count <= charCount

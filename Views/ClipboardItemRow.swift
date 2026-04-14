@@ -12,11 +12,17 @@ struct ClipboardItemRow: View {
     
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.25)
+            // Slightly more saturated than 0.25 so selected items read clearly
+            // without feeling garish — pairs well with the accent strip
+            return Color.accentColor.opacity(0.15)
         } else if isHovered {
-            return Color.primary.opacity(0.06)
+            return Color.primary.opacity(0.05)
         }
         return Color.clear
+    }
+
+    private var backgroundCornerRadius: CGFloat {
+        isSelected ? 0 : 6
     }
     
     /// Truncated preview for list display - short and single line
@@ -32,20 +38,21 @@ struct ClipboardItemRow: View {
     }
     
     var body: some View {
-        HStack(spacing: 10) {
-            // Icon
-            icon
-                .frame(width: 20, height: 20)
-            
-            // Content preview - truncated for list view
+        HStack(spacing: 12) {
+            if item.type == .image {
+                icon
+                    .frame(width: 28, height: 28)
+            }
+
+            // Slightly larger text with a bit more air so the list reads more comfortably.
             Text(truncatedPreviewText)
-                .font(.system(size: 13))
+                .font(.system(size: 14))
                 .foregroundColor(.primary)
                 .lineLimit(1)
-            
+
             Spacer(minLength: 0)
-            
-            // Source app icon
+
+            // Source app icon — 16pt keeps it from competing with content
             if let app = item.sourceApp {
                 Group {
                     if let icon = sourceAppIcon {
@@ -53,20 +60,25 @@ struct ClipboardItemRow: View {
                             .resizable()
                             .interpolation(.high)
                             .aspectRatio(contentMode: .fit)
+                            .opacity(0.85)
                     } else {
                         Image(systemName: "app.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary.opacity(0.7))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary.opacity(0.4))
                     }
                 }
-                .frame(width: 14, height: 14)
+                .frame(width: 18, height: 18)
                 .help(app)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(backgroundColor)
-        .cornerRadius(4)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        // Use a shaped background so the fill is explicitly rounded — avoids
+        // potential clipping artefacts from stacking .background + .cornerRadius
+        .background(
+            backgroundColor,
+            in: RoundedRectangle(cornerRadius: backgroundCornerRadius, style: .continuous)
+        )
         .onHover { hovering in
             isHovered = hovering
         }
@@ -85,25 +97,18 @@ struct ClipboardItemRow: View {
     
     @ViewBuilder
     private var icon: some View {
-        switch item.type {
-        case .text:
-            Image(systemName: "doc.text")
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
-        case .image:
+        if item.type == .image {
             if let img = thumbnail {
                 Image(nsImage: img)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 20, height: 20)
-                    .clipped()
-                    .cornerRadius(2)
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             } else {
-                // Placeholder while loading
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.secondary.opacity(0.2))
-                    .frame(width: 20, height: 20)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.secondary.opacity(0.12))
+                    .frame(width: 28, height: 28)
             }
         }
     }
@@ -118,7 +123,7 @@ struct ClipboardItemRow: View {
                 }
                 
                 // Create a tiny thumbnail (40x40 for retina)
-                let thumbSize = NSSize(width: 40, height: 40)
+                let thumbSize = NSSize(width: 56, height: 56)
                 let thumb = NSImage(size: thumbSize)
                 thumb.lockFocus()
                 original.draw(

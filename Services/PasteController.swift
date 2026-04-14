@@ -2,6 +2,13 @@ import Cocoa
 
 /// Handles pasting content into the frontmost application
 class PasteController {
+    private static let pasteDelay: TimeInterval = 0.12
+
+    static func copyTextToClipboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
     
     /// Copy item content back to system clipboard
     static func copyToClipboard(_ item: ClipboardItem, store: ClipboardStore) {
@@ -23,12 +30,32 @@ class PasteController {
     }
     
     /// Paste item into the frontmost application
-    static func paste(_ item: ClipboardItem, store: ClipboardStore) {
+    static func paste(
+        _ item: ClipboardItem,
+        store: ClipboardStore,
+        targetApplication: NSRunningApplication? = nil
+    ) {
         // First copy to clipboard
         copyToClipboard(item, store: store)
-        
-        // Small delay to ensure clipboard is updated
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+
+        prepareAndSimulatePaste(into: targetApplication)
+    }
+    
+    static func paste(text: String, targetApplication: NSRunningApplication? = nil) {
+        copyTextToClipboard(text)
+
+        prepareAndSimulatePaste(into: targetApplication)
+    }
+
+    private static func prepareAndSimulatePaste(into targetApplication: NSRunningApplication?) {
+        if let targetApplication,
+           !targetApplication.isTerminated,
+           targetApplication.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            targetApplication.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        // Give the pasteboard and target app a brief moment to settle before posting Cmd+V.
+        DispatchQueue.main.asyncAfter(deadline: .now() + pasteDelay) {
             simulatePaste()
         }
     }
