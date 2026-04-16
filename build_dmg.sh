@@ -105,7 +105,7 @@ EOF
     --timestamp \
     --options runtime \
     --sign "${SIGN_IDENTITY}" \
-    --entitlements clippie.entitlements \
+    --entitlements release/App.entitlements \
     ${APP_DIR}
 
     echo "🔍 Verifying..."
