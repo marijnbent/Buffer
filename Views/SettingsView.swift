@@ -58,45 +58,20 @@ struct SettingsView: View {
             accessibilityPermission.refresh()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .scrollContentBackground(.hidden)
-        .background(Color(NSColor.windowBackgroundColor))
     }
 
     private var keyboardSection: some View {
         Section {
-            LabeledContent("Shortcut") {
-                HStack(spacing: 10) {
-                    HStack(spacing: 3) {
-                        Text(settings.hotkeyModifiers.displayString)
-                        Text(keyCodeNames[settings.hotkeyKeyCode] ?? "?")
-                    }
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(isRecording
-                                  ? Color.accentColor.opacity(0.1)
-                                  : Color(NSColor.textBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(isRecording
-                                    ? Color.accentColor.opacity(0.7)
-                                    : Color.primary.opacity(0.1), lineWidth: 1)
-                    )
-                    .animation(.easeInOut(duration: 0.15), value: isRecording)
-
-                    Button(isRecording ? "Cancel" : "Change") {
-                        isRecording.toggle()
-                    }
-                    .buttonStyle(.bordered)
-
-                    if isRecording {
-                        Text("Press shortcut...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+            LabeledContent {
+                Button(isRecording ? "Cancel" : "Change") {
+                    isRecording.toggle()
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Shortcut")
+                    Text(isRecording ? "Press shortcut..." : shortcutDisplay)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
                 }
             }
         } header: {
@@ -139,7 +114,7 @@ struct SettingsView: View {
                     }
                 }
             } header: {
-                Text("System")
+                Text("Behavior")
             } footer: {
                 Text("Choose how long clipboard history should be kept.")
             }
@@ -148,26 +123,12 @@ struct SettingsView: View {
 
     private var accessibilityPermissionRow: some View {
         LabeledContent {
-            HStack(spacing: 8) {
-                if !accessibilityPermission.isTrusted {
-                    Button("Request") {
-                        accessibilityPermission.requestAccess()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                } else {
-                    Button("Refresh") {
-                        accessibilityPermission.refresh()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                Button("Open Settings") {
+            Button(accessibilityPermission.isTrusted ? "Open Settings" : "Request") {
+                if accessibilityPermission.isTrusted {
                     accessibilityPermission.openSystemSettings()
+                } else {
+                    accessibilityPermission.requestAccess()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
         } label: {
             Label {
@@ -187,16 +148,6 @@ struct SettingsView: View {
     
     private var snippetsSection: some View {
         Section {
-            HStack {
-                Spacer()
-                Button {
-                    editingSnippet = SnippetDraft()
-                } label: {
-                    Label("New Snippet", systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-            }
-
             if snippetStore.snippets.isEmpty {
                 Text("No snippets yet")
                     .foregroundStyle(.secondary)
@@ -206,46 +157,65 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Snippets")
+            HStack {
+                Text("Snippets")
+                Spacer()
+                Button {
+                    editingSnippet = SnippetDraft()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("Add snippet")
+            }
         } footer: {
             Text("Type : in any text field to search and insert snippets.")
         }
     }
 
     private func snippetRow(_ snippet: Snippet) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(":\(snippet.trigger)")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
+        LabeledContent {
+            HStack(spacing: 8) {
+                Button("Edit") {
+                    editingSnippet = SnippetDraft(snippet: snippet)
+                }
+                .controlSize(.small)
 
+                Button {
+                    snippetStore.deleteSnippet(id: snippet.id)
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Delete snippet")
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snippet.displayTitle)
-                        .font(.body.weight(.medium))
                         .lineLimit(1)
 
-                    Text(snippet.content)
+                    Text(":\(snippet.trigger)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    Text(snippetSummary(snippet))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
-
-                Spacer()
-
-                Button("Edit") {
-                    editingSnippet = SnippetDraft(snippet: snippet)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button(role: .destructive) {
-                    snippetStore.deleteSnippet(id: snippet.id)
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
             }
         }
+    }
+
+    private var shortcutDisplay: String {
+        "\(settings.hotkeyModifiers.displayString)\(keyCodeNames[settings.hotkeyKeyCode] ?? "?")"
+    }
+
+    private func snippetSummary(_ snippet: Snippet) -> String {
+        snippet.content
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     private func saveSnippetDraft(_ draft: SnippetDraft) -> Bool {

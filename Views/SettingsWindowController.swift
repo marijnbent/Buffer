@@ -152,18 +152,18 @@ private struct ClippieSettingsRootView: View {
 
 private struct ClippieAboutSettingsView: View {
     var body: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Clippie")
-                        .font(.title2.weight(.semibold))
-
-                    Text("A clipboard manager with snippets and quick history for macOS.")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-            }
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "paperclip")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("Clippie")
+                .font(.title)
+                .fontWeight(.semibold)
+            Text("Clipboard history and snippets for macOS")
+                .foregroundStyle(.secondary)
+            Spacer()
         }
-        .formStyle(.grouped)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
