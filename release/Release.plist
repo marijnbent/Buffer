@@ -5,7 +5,7 @@
   <key>AppName</key>
   <string>Clippie</string>
   <key>BuildBackend</key>
-  <string>xcode</string>
+  <string>swiftpm</string>
   <key>BuildNumber</key>
   <string>1</string>
   <key>BundleIdentifier</key>
@@ -14,19 +14,17 @@
   <string>Copyright © 2026. All rights reserved.</string>
   <key>DevelopmentTeam</key>
   <string>X44F5HTS6P</string>
+  <key>IconSource</key>
+  <string>release/Icon.iconset</string>
   <key>LSUIElement</key>
   <true/>
   <key>MarketingVersion</key>
   <string>1.0</string>
   <key>MinimumSystemVersion</key>
   <string>13.0</string>
+  <key>ProductName</key>
+  <string>Clippie</string>
   <key>SigningIdentity</key>
   <string>Apple Development: marijnbent@gmail.com (S4ZHLE3A52)</string>
-  <key>XcodeProject</key>
-  <string>clippie.xcodeproj</string>
-  <key>XcodeCodeSignIdentity</key>
-  <string>Apple Development</string>
-  <key>XcodeScheme</key>
-  <string>clippie</string>
 </dict>
 </plist>

@@ -12,6 +12,7 @@ xcuserdata/
 ## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
 build/
 DerivedData/
+.derived/
 *.moved-aside
 *.pbxuser
 !default.pbxuser
@@ -59,6 +60,8 @@ Temporary Items
 
 # Swift Package Manager
 .build/
+.swiftpm/
+.derived-debug/
 
 # Fastlane
 fastlane/report.xml

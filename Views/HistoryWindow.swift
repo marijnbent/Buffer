@@ -325,14 +325,12 @@ private enum DetailPaneMode: Equatable {
 private enum QuickActionRoute: Equatable {
     case home
     case saveSnippet
-    case addToSnippet
     case confirmDelete
 }
 
 private enum QuickActionHomeOption: Equatable {
     case showLargerImage
     case saveSnippet
-    case addToSnippet
     case runOCR
     case deleteHistory
 }
@@ -496,8 +494,6 @@ struct HistoryContentView: View {
     @State private var snippetDraftTitle = ""
     @State private var snippetDraftTrigger = ""
     @State private var snippetDraftContent = ""
-    @State private var snippetTargetSearch = ""
-    @State private var selectedSnippetTargetID: UUID?
     @State private var quickActionHomeSelection = 0
     @State private var quickActionMessage: String?
     @State private var quickActionError: String?
@@ -582,26 +578,6 @@ struct HistoryContentView: View {
         return actionWarning(for: item)
     }
 
-    private var filteredSnippetTargets: [Snippet] {
-        let query = snippetTargetSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return snippetStore.snippets }
-
-        return snippetStore.snippets.filter { snippet in
-            snippet.displayTitle.localizedCaseInsensitiveContains(query) ||
-            snippet.trigger.localizedCaseInsensitiveContains(query) ||
-            snippet.content.localizedCaseInsensitiveContains(query)
-        }
-    }
-
-    private var selectedSnippetTarget: Snippet? {
-        guard let selectedSnippetTargetID else { return filteredSnippetTargets.first }
-        return filteredSnippetTargets.first(where: { $0.id == selectedSnippetTargetID }) ?? filteredSnippetTargets.first
-    }
-
-    private var visibleSnippetTargets: [Snippet] {
-        Array(filteredSnippetTargets.prefix(8))
-    }
-
     private var reduceTransparencyEnabled: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     }
@@ -669,22 +645,12 @@ struct HistoryContentView: View {
         .onChange(of: selectedID) { _ in
             resetQuickActionState()
         }
-        .onChange(of: snippetTargetSearch) { _ in
-            selectedSnippetTargetID = filteredSnippetTargets.first?.id
-        }
         .onChange(of: store.items) { _ in
             syncSelection()
         }
         .onChange(of: snippetStore.snippets) { _ in
             if isSnippetSearch {
                 syncSelection()
-            }
-
-            if let currentTarget = selectedSnippetTarget,
-               selectedSnippetTargetID != currentTarget.id {
-                selectedSnippetTargetID = currentTarget.id
-            } else if filteredSnippetTargets.isEmpty {
-                selectedSnippetTargetID = nil
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .bufferWindowDidOpen)) { _ in
@@ -1074,13 +1040,18 @@ struct HistoryContentView: View {
             }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                let isHome = quickActionRoute == .home
+                let bannerHorizontalPadding: CGFloat = isHome ? 10 : 0
+
+                VStack(alignment: .leading, spacing: isHome ? 6 : 10) {
                     // Status banners sit at the top of content
                     if let quickActionMessage {
                         quickActionStatus(text: quickActionMessage, systemImage: "checkmark.circle.fill", tint: .green)
+                            .padding(.horizontal, bannerHorizontalPadding)
                     }
                     if let quickActionError {
                         quickActionStatus(text: quickActionError, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                            .padding(.horizontal, bannerHorizontalPadding)
                     }
 
                     switch quickActionRoute {
@@ -1088,13 +1059,13 @@ struct HistoryContentView: View {
                         quickActionsHomePane(for: item)
                     case .saveSnippet:
                         quickActionSaveSnippetPane(for: item)
-                    case .addToSnippet:
-                        quickActionAddToSnippetPane(for: item)
                     case .confirmDelete:
                         quickActionDeletePane(for: item)
                     }
                 }
-                .padding(14)
+                .padding(.horizontal, isHome ? 0 : 14)
+                .padding(.top, isHome ? 0 : 14)
+                .padding(.bottom, isHome ? 6 : 14)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
@@ -1129,7 +1100,7 @@ struct HistoryContentView: View {
 
     private func quickActionsHomePane(for item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(spacing: 4) {
+            VStack(spacing: 0) {
                 let options = quickActionOptions(for: item)
                 ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                     let isDestructive = option == .deleteHistory
@@ -1165,6 +1136,7 @@ struct HistoryContentView: View {
                         .font(.system(size: 11))
                 }
                 .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
                 .padding(.top, 8)
             }
         }
@@ -1172,7 +1144,7 @@ struct HistoryContentView: View {
 
     private func quickActionSaveSnippetPane(for item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            if selectedItemActionText == nil {
+            if !canSaveItemAsSnippet(item) || selectedItemActionText == nil {
                 // No-text warning state
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
@@ -1212,124 +1184,6 @@ struct HistoryContentView: View {
             .buttonStyle(.borderedProminent)
             .frame(maxWidth: .infinity)
             .disabled(selectedItemActionText == nil)
-        }
-    }
-
-    private func quickActionAddToSnippetPane(for item: ClipboardItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if snippetStore.snippets.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                    Text("Create a snippet first, then you can append clipboard content to it here.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.07),
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else if selectedItemActionText == nil {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 13))
-                        .foregroundColor(.orange)
-                    Text(selectedItemActionWarning ?? "This item does not have text available.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.07),
-                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else {
-                // Search field
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    TextField("Filter snippets", text: $snippetTargetSearch)
-                        .font(.system(size: 12))
-                        .textFieldStyle(.plain)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(inputSurfaceFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(surfaceStroke, lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-                // Snippet picker list
-                if filteredSnippetTargets.isEmpty {
-                    Text("No snippets match that search.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 4)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(visibleSnippetTargets.enumerated()), id: \.element.id) { index, snippet in
-                            let isSelected = selectedSnippetTarget?.id == snippet.id
-
-                            if index > 0 {
-                                Rectangle()
-                                    .fill(Color.primary.opacity(0.05))
-                                    .frame(height: 1)
-                            }
-
-                            Button {
-                                selectedSnippetTargetID = snippet.id
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Text(":\(snippet.trigger)")
-                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(.accentColor)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 2)
-                                        .background(Color.accentColor.opacity(0.09),
-                                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-
-                                    Text(snippet.displayTitle)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-
-                                    Spacer(minLength: 0)
-
-                                    if isSelected {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundColor(.accentColor)
-                                    }
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(cardSurfaceFill)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(surfaceStroke, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-            }
-
-            // CTA
-            Button("Add to Snippet") {
-                appendToSelectedSnippet()
-            }
-            .buttonStyle(.borderedProminent)
-            .frame(maxWidth: .infinity)
-            .disabled(selectedItemActionText == nil || selectedSnippetTarget == nil)
         }
     }
 
@@ -1444,14 +1298,11 @@ struct HistoryContentView: View {
                 }
             }
 
-            Button("Save as Snippet") {
-                selectResult(at: index)
-                openQuickActions(for: item, route: .saveSnippet)
-            }
-
-            Button("Add to Snippet") {
-                selectResult(at: index)
-                openQuickActions(for: item, route: .addToSnippet)
+            if canSaveItemAsSnippet(item) {
+                Button("Save as Snippet") {
+                    selectResult(at: index)
+                    openQuickActions(for: item, route: .saveSnippet)
+                }
             }
 
             if item.type == .image {
@@ -1497,7 +1348,9 @@ struct HistoryContentView: View {
             options.append(.showLargerImage)
         }
 
-        options.append(contentsOf: [.saveSnippet, .addToSnippet])
+        if canSaveItemAsSnippet(item) {
+            options.append(.saveSnippet)
+        }
 
         if item.type == .image {
             options.append(.runOCR)
@@ -1513,8 +1366,6 @@ struct HistoryContentView: View {
             return "Show Larger"
         case .saveSnippet:
             return "Save as Snippet"
-        case .addToSnippet:
-            return "Add to Snippet"
         case .runOCR:
             return item.ocrText == nil ? "Run OCR" : "Refresh OCR"
         case .deleteHistory:
@@ -1527,13 +1378,9 @@ struct HistoryContentView: View {
         case .showLargerImage:
             return "Open a larger in-app preview for this image"
         case .saveSnippet:
-            return selectedItemActionText == nil
+            return canSaveItemAsSnippet(item) && selectedItemActionText == nil
                 ? "Needs text content first"
-                : "Create a new reusable snippet from this item"
-        case .addToSnippet:
-            return snippetStore.snippets.isEmpty
-                ? "Create a snippet first"
-                : "Append this value to one of your saved snippets"
+                : "Create a new reusable snippet from this text"
         case .runOCR:
             return item.ocrText == nil
                 ? "Extract text so the image can be reused"
@@ -1549,8 +1396,6 @@ struct HistoryContentView: View {
             return "arrow.up.left.and.arrow.down.right"
         case .saveSnippet:
             return "square.and.arrow.down"
-        case .addToSnippet:
-            return "text.insert"
         case .runOCR:
             return isExtractingText ? "ellipsis.circle" : "text.viewfinder"
         case .deleteHistory:
@@ -1564,8 +1409,6 @@ struct HistoryContentView: View {
             openImagePreview(for: item)
         case .saveSnippet:
             openQuickActions(for: item, route: .saveSnippet)
-        case .addToSnippet:
-            openQuickActions(for: item, route: .addToSnippet)
         case .runOCR:
             runOCR(for: item)
         case .deleteHistory:
@@ -1582,10 +1425,12 @@ struct HistoryContentView: View {
         snippetDraftTitle = ""
         snippetDraftTrigger = ""
         snippetDraftContent = ""
-        snippetTargetSearch = ""
-        selectedSnippetTargetID = nil
         quickActionMessage = nil
         quickActionError = nil
+    }
+
+    private func canSaveItemAsSnippet(_ item: ClipboardItem) -> Bool {
+        item.type == .text
     }
 
     private func suggestedTrigger(from text: String) -> String {
@@ -1604,14 +1449,13 @@ struct HistoryContentView: View {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         case .image:
-            let trimmed = item.ocrText?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (trimmed?.isEmpty == false) ? trimmed : nil
+            return nil
         }
     }
 
     private func actionWarning(for item: ClipboardItem) -> String? {
-        if item.type == .image && actionText(for: item) == nil {
-            return "Run OCR first to use this image in a snippet."
+        if item.type == .image {
+            return "Snippet saving only works for text clips."
         }
 
         if item.isTruncated {
@@ -1661,9 +1505,6 @@ struct HistoryContentView: View {
             quickActionHomeSelection = 0
         case .saveSnippet:
             prepareSnippetDraft(for: item)
-        case .addToSnippet:
-            snippetTargetSearch = ""
-            selectedSnippetTargetID = visibleSnippetTargets.first?.id
         case .confirmDelete:
             break
         }
@@ -1677,6 +1518,12 @@ struct HistoryContentView: View {
     }
 
     private func saveSnippetFromQuickActions() {
+        guard let item = selectedItem, canSaveItemAsSnippet(item) else {
+            quickActionError = "Only text clips can be saved as snippets."
+            quickActionMessage = nil
+            return
+        }
+
         let content = snippetDraftContent.trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
@@ -1692,37 +1539,6 @@ struct HistoryContentView: View {
             snippetDraftTitle = ""
             snippetDraftTrigger = ""
             snippetDraftContent = ""
-        } catch {
-            quickActionError = error.localizedDescription
-            quickActionMessage = nil
-        }
-    }
-
-    private func appendToSelectedSnippet() {
-        guard let snippet = selectedSnippetTarget else {
-            quickActionError = "Choose a snippet first."
-            quickActionMessage = nil
-            return
-        }
-
-        guard let text = selectedItemActionText else {
-            quickActionError = "This item does not have text available."
-            quickActionMessage = nil
-            return
-        }
-
-        let mergedContent = snippet.content.isEmpty ? text : "\(snippet.content)\n\(text)"
-
-        do {
-            try snippetStore.saveSnippet(
-                id: snippet.id,
-                title: snippet.title,
-                trigger: snippet.trigger,
-                content: mergedContent
-            )
-            quickActionRoute = .home
-            quickActionError = nil
-            quickActionMessage = "Added to :\(snippet.trigger)"
         } catch {
             quickActionError = error.localizedDescription
             quickActionMessage = nil
@@ -1773,8 +1589,6 @@ struct HistoryContentView: View {
                 activateQuickAction(options[quickActionHomeSelection], for: item)
             case .saveSnippet:
                 break
-            case .addToSnippet:
-                appendToSelectedSnippet()
             case .confirmDelete:
                 deleteSelectedItem(item)
             }
@@ -1946,13 +1760,6 @@ struct HistoryContentView: View {
             switch quickActionRoute {
             case .home:
                 quickActionHomeSelection = max(quickActionHomeSelection - 1, 0)
-            case .addToSnippet:
-                guard let currentID = selectedSnippetTargetID,
-                      let currentIndex = visibleSnippetTargets.firstIndex(where: { $0.id == currentID }) else {
-                    selectedSnippetTargetID = visibleSnippetTargets.first?.id
-                    return
-                }
-                selectedSnippetTargetID = visibleSnippetTargets[safe: max(currentIndex - 1, 0)]?.id
             case .saveSnippet, .confirmDelete:
                 break
             }
@@ -1975,14 +1782,6 @@ struct HistoryContentView: View {
                 guard let item = selectedItem else { return }
                 let maxIndex = max(quickActionOptions(for: item).count - 1, 0)
                 quickActionHomeSelection = min(quickActionHomeSelection + 1, maxIndex)
-            case .addToSnippet:
-                guard !visibleSnippetTargets.isEmpty else { return }
-                guard let currentID = selectedSnippetTargetID,
-                      let currentIndex = visibleSnippetTargets.firstIndex(where: { $0.id == currentID }) else {
-                    selectedSnippetTargetID = visibleSnippetTargets.first?.id
-                    return
-                }
-                selectedSnippetTargetID = visibleSnippetTargets[safe: min(currentIndex + 1, visibleSnippetTargets.count - 1)]?.id
             case .saveSnippet, .confirmDelete:
                 break
             }
@@ -2002,7 +1801,7 @@ struct HistoryContentView: View {
             switch quickActionRoute {
             case .home:
                 closeDetailOverlay()
-            case .saveSnippet, .addToSnippet, .confirmDelete:
+            case .saveSnippet, .confirmDelete:
                 quickActionRoute = .home
                 quickActionMessage = nil
                 quickActionError = nil

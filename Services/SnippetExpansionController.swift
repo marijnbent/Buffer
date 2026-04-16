@@ -305,12 +305,8 @@ final class SnippetExpansionController {
         guard AXValueGetValue(boundsValue, .cgRect, &bounds) else {
             return nil
         }
-        
-        if bounds.width <= 0 {
-            bounds.size.width = 1
-        }
 
-        return bounds
+        return resolvedCaretRect(fromAccessibilityBounds: bounds)
     }
     
     private func fallbackAnchorRect() -> CGRect {
@@ -335,6 +331,61 @@ final class SnippetExpansionController {
 
     private func exactMatch(for query: String) -> Snippet? {
         store.exactTriggerMatch(for: query)
+    }
+
+    private func resolvedCaretRect(fromAccessibilityBounds bounds: CGRect) -> CGRect? {
+        guard isFinite(bounds) else {
+            return nil
+        }
+
+        guard var convertedBounds = appKitRect(fromAccessibilityRect: bounds) else {
+            return nil
+        }
+
+        if convertedBounds.width <= 0 {
+            convertedBounds.size.width = 1
+        }
+
+        if convertedBounds.height <= 0 {
+            convertedBounds.size.height = 18
+        }
+
+        let desktopFrame = NSScreen.screens.reduce(into: CGRect.null) { partialResult, screen in
+            partialResult = partialResult.union(screen.frame)
+        }
+        let sanityFrame = desktopFrame.insetBy(dx: -320, dy: -320)
+        guard sanityFrame.intersects(convertedBounds) else {
+            return nil
+        }
+
+        return convertedBounds.integral
+    }
+
+    private func isFinite(_ rect: CGRect) -> Bool {
+        rect.origin.x.isFinite &&
+        rect.origin.y.isFinite &&
+        rect.size.width.isFinite &&
+        rect.size.height.isFinite
+    }
+
+    private func appKitRect(fromAccessibilityRect accessibilityRect: CGRect) -> CGRect? {
+        guard let menuBarScreen = menuBarScreen else {
+            return nil
+        }
+
+        var convertedRect = accessibilityRect
+        convertedRect.origin.y = menuBarScreen.frame.maxY - accessibilityRect.maxY
+        return convertedRect
+    }
+
+    private var menuBarScreen: NSScreen? {
+        let mainDisplayID = CGMainDisplayID()
+        return NSScreen.screens.first(where: { screen in
+            guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+                return false
+            }
+            return CGDirectDisplayID(screenNumber.uint32Value) == mainDisplayID
+        }) ?? NSScreen.screens.first
     }
 
     private func playInsertionSound() {

@@ -11,4 +11,6 @@ Canonical local release commands:
 
 `./scripts/release-local.sh` quits Clippie, builds the signed release app, verifies it, installs it to `/Applications/Clippie.app`, and opens it.
 
+`clippie` now uses Swift Package Manager as its compile backend, so `swift build` and the release scripts go through the same package target.
+
 Release settings live in `release/Release.plist`. Entitlements live in `release/App.entitlements`.

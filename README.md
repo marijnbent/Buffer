@@ -87,6 +87,9 @@
 git clone https://github.com/samirpatil2000/Buffer.git
 cd clippie
 
+# Compile the app with Swift Package Manager
+swift build
+
 # Build a signed release app bundle
 ./scripts/build-release.sh
 
