@@ -106,7 +106,7 @@ class ClipboardWatcher: ObservableObject {
                     if let filename = store.saveText(text) {
                         let item = ClipboardItem.largeText(preview: preview, filename: filename, sourceApp: sourceApp, sourceBundleIdentifier: sourceBundleIdentifier)
                         store.add(item)
-                        print("[Buffer] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
+                        print("[clippie] Large text (\(textSize / 1024) KB) saved to file: \(filename)")
                     }
                 }
             }

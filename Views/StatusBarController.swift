@@ -24,7 +24,7 @@ class StatusBarController {
         
         // Use SF Symbol for clipboard
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "cliphis")
+        let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "clippie")
         image?.isTemplate = true
         button.image = image?.withSymbolConfiguration(config)
         
@@ -87,7 +87,7 @@ class StatusBarController {
         menu.addItem(NSMenuItem.separator())
         
         // Quit
-        let quitItem = NSMenuItem(title: "Quit cliphis", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit clippie", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         
@@ -96,7 +96,7 @@ class StatusBarController {
         statusItem.menu = nil  // Reset so left click works
     }
     
-    @objc private func showSettings() {
+    func showSettingsWindow() {
         if let controller = settingsWindowController, let window = controller.window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -111,6 +111,10 @@ class StatusBarController {
         settingsWindowController = controller
         controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func showSettings() {
+        showSettingsWindow()
     }
     
     @objc private func togglePause() {
@@ -145,7 +149,7 @@ class StatusBarController {
         
         let symbolName = paused ? "doc.on.clipboard.fill" : "doc.on.clipboard"
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "cliphis")
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "clippie")
         image?.isTemplate = true
         button.image = image?.withSymbolConfiguration(config)
     }

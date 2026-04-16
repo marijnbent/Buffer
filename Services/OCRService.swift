@@ -13,14 +13,14 @@ class OCRService {
     /// - Returns: Recognized text string, or nil if no text found
     func recognizeText(from image: NSImage) async -> String? {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            print("[Buffer OCR] Failed to get CGImage from NSImage")
+            print("[clippie OCR] Failed to get CGImage from NSImage")
             return nil
         }
         
         return await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error = error {
-                    print("[Buffer OCR] Recognition error: \(error.localizedDescription)")
+                    print("[clippie OCR] Recognition error: \(error.localizedDescription)")
                     continuation.resume(returning: nil)
                     return
                 }
@@ -54,7 +54,7 @@ class OCRService {
                 do {
                     try handler.perform([request])
                 } catch {
-                    print("[Buffer OCR] Handler error: \(error.localizedDescription)")
+                    print("[clippie OCR] Handler error: \(error.localizedDescription)")
                     continuation.resume(returning: nil)
                 }
             }

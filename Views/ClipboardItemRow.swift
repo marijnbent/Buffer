@@ -22,7 +22,7 @@ struct ClipboardItemRow: View {
     }
 
     private var backgroundCornerRadius: CGFloat {
-        isSelected ? 0 : 6
+        isSelected ? 0 : 4
     }
     
     /// Truncated preview for list display - short and single line

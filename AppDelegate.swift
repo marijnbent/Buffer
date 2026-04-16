@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardWatcher: ClipboardWatcher?
     private var historyWindowController: HistoryWindowController?
     private var hotkeyManager: HotkeyManager?
+    private var snippetExpansionController: SnippetExpansionController?
     
     let clipboardStore = ClipboardStore()
     
@@ -38,6 +39,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize history window controller
         historyWindowController = HistoryWindowController(store: clipboardStore)
+
+        snippetExpansionController = SnippetExpansionController(store: .shared)
+        snippetExpansionController?.start()
         
         // Setup global hotkey (Option + /)
         hotkeyManager = HotkeyManager { [weak self] in
@@ -53,6 +57,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         clipboardWatcher?.stopWatching()
         hotkeyManager?.unregister()
+        snippetExpansionController?.stop()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        statusBarController?.showSettingsWindow()
+        return true
     }
     
     private func toggleHistoryWindow() {

@@ -4,28 +4,64 @@ import Combine
 
 /// Define the tiers as a type
 enum HistoryLimit: Int, CaseIterable, Codable {
-    case essential  = 100
-    case deep       = 500
-    case unlimited  = 1000
+    case oneDay = 1
+    case sevenDays = 7
+    case oneMonth = 30
+    case sixMonths = 180
     
     var label: String {
         switch self {
-        case .essential: return "Essential"
-        case .deep:      return "Deep"
-        case .unlimited: return "Unlimited"
+        case .oneDay: return "1 day"
+        case .sevenDays: return "7 days"
+        case .oneMonth: return "1 month"
+        case .sixMonths: return "6 months"
         }
     }
     
     var subtitle: String {
         switch self {
-        case .essential: return "100 items"
-        case .deep:      return "500 items"
-        case .unlimited: return "1,000 items"
+        case .oneDay: return "Last 24 hours"
+        case .sevenDays: return "Last week"
+        case .oneMonth: return "Last month"
+        case .sixMonths: return "Last 6 months"
+        }
+    }
+
+    func cutoffDate(relativeTo date: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> Date {
+        switch self {
+        case .oneDay:
+            return calendar.date(byAdding: .day, value: -1, to: date) ?? date
+        case .sevenDays:
+            return calendar.date(byAdding: .day, value: -7, to: date) ?? date
+        case .oneMonth:
+            return calendar.date(byAdding: .month, value: -1, to: date) ?? date
+        case .sixMonths:
+            return calendar.date(byAdding: .month, value: -6, to: date) ?? date
+        }
+    }
+
+    static let defaultValue: HistoryLimit = .sevenDays
+
+    static func fromStoredValue(_ value: Int) -> HistoryLimit? {
+        if let limit = HistoryLimit(rawValue: value) {
+            return limit
+        }
+
+        // Migrate legacy item-count based preferences to the nearest time-based tier.
+        switch value {
+        case 100:
+            return .sevenDays
+        case 500:
+            return .oneMonth
+        case 1000:
+            return .sixMonths
+        default:
+            return nil
         }
     }
 }
 
-/// Manages user preferences for Buffer
+/// Manages user preferences for clippie
 class SettingsManager: ObservableObject {
     static let shared = SettingsManager()
 
@@ -41,7 +77,7 @@ class SettingsManager: ObservableObject {
     @Published var hotkeyModifiers: HotkeyModifiers
     @Published var hotkeyKeyCode: UInt16
     @Published var launchAtLogin: Bool = false
-    @Published var historyLimit: HistoryLimit = .essential
+    @Published var historyLimit: HistoryLimit = .defaultValue
     
     private init() {
         // Load saved modifiers or use default
@@ -62,7 +98,7 @@ class SettingsManager: ObservableObject {
         
         // Load history limit
         let rawLimit = defaults.integer(forKey: "historyLimit")
-        self.historyLimit = HistoryLimit(rawValue: rawLimit) ?? .essential
+        self.historyLimit = HistoryLimit.fromStoredValue(rawLimit) ?? .defaultValue
     }
     
     func save() {

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>AppName</key>
+  <string>Clippie</string>
+  <key>BuildBackend</key>
+  <string>xcode</string>
+  <key>BuildNumber</key>
+  <string>1</string>
+  <key>BundleIdentifier</key>
+  <string>nl.bentjes.clippie</string>
+  <key>Copyright</key>
+  <string>Copyright © 2026. All rights reserved.</string>
+  <key>DevelopmentTeam</key>
+  <string>X44F5HTS6P</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>MarketingVersion</key>
+  <string>1.0</string>
+  <key>MinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>SigningIdentity</key>
+  <string>Apple Development: marijnbent@gmail.com (S4ZHLE3A52)</string>
+  <key>XcodeProject</key>
+  <string>clippie.xcodeproj</string>
+  <key>XcodeScheme</key>
+  <string>clippie</string>
+</dict>
+</plist>

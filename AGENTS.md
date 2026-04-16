@@ -1,4 +1,4 @@
-# cliphis Agent Notes
+# clippie Agent Notes
 
 ## Signed Builds
 
@@ -11,22 +11,22 @@
 Use:
 
 ```bash
-xcodebuild -project cliphis.xcodeproj -scheme cliphis -configuration Release -derivedDataPath .derived build
-rm -rf /Applications/cliphis.app
-mv .derived/Build/Products/Release/cliphis.app /Applications/cliphis.app
+xcodebuild -project clippie.xcodeproj -scheme clippie -configuration Release -derivedDataPath .derived build
+rm -rf /Applications/Clippie.app
+mv .derived/Build/Products/Release/Clippie.app /Applications/Clippie.app
 ```
 
 Run the built app with:
 
 ```bash
-open /Applications/cliphis.app
+open /Applications/Clippie.app
 ```
 
 ## Signing Expectations
 
 - The user has already selected their Apple development team in Xcode.
 - The user has already confirmed local Release builds can use that existing signing setup.
-- Keep using the existing bundle identifier unless the user asks to change it.
+- Use bundle identifier `nl.bentjes.clippie` unless the user asks to change it.
 - If signing fails, do not silently switch to an unsigned build. Tell the user what failed.
 
 ## UI Copy

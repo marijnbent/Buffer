@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="Assets/Buffer-Logo.png" alt="Buffer Logo" width="128" height="128">
+  <img src="Assets/Buffer-Logo.png" alt="clippie logo" width="128" height="128">
 </p>
 
-<h1 align="center">Buffer</h1>
+<h1 align="center">clippie</h1>
 
 <p align="center">
   <strong>A lightweight, beautiful clipboard manager for macOS</strong>
@@ -19,7 +19,7 @@
 
 ---
 
-### ✨ Why Buffer?
+### ✨ Why clippie?
 - **Ultra-lightweight** — Only ~2 MB download/install, minimal RAM/CPU usage
 - **100% Private & Local** — Everything stays on your Mac, no cloud, no tracking
 - **Text + Images + OCR** — Copies anything; extracts searchable text from images/screenshots/memes using on-device Vision
@@ -40,7 +40,7 @@
 </p>
 
 1. Download the `.dmg` from the latest release
-2. Drag **cliphis.app** to your **Applications** folder
+2. Drag **clippie.app** to your **Applications** folder
 3. Launch it (lives in menu bar)
 4. **Note (not yet notarized)**: Right-click → Open → confirm in security dialog
 
@@ -49,9 +49,9 @@
 ## 🚀 Getting Started
 
 1. **Download** the `.dmg` file from above
-2. **Drag** Buffer to your Applications folder
-3. **Launch** Buffer — it will appear in your menu bar
-4. **Copy** anything — Buffer automatically saves it
+2. **Drag** clippie to your Applications folder
+3. **Launch** clippie — it will appear in your menu bar
+4. **Copy** anything — clippie automatically saves it
 5. Press **⌥/** to access your clipboard history anytime!
 
 ---
@@ -85,14 +85,16 @@
 ```bash
 # Clone the repository
 git clone https://github.com/samirpatil2000/Buffer.git
-cd cliphis
+cd clippie
 
-# Open in Xcode
-open cliphis.xcodeproj
+# Build a signed release app bundle
+./scripts/build-release.sh
 
-# Build and run
-# Press ⌘R in Xcode
+# Or build, verify, install to /Applications, and open it
+./scripts/release-local.sh
 ```
+
+The canonical build artifact is `build/Release/Clippie.app`.
 
 ### Requirements
 - macOS 13.0 or later
@@ -104,8 +106,8 @@ open cliphis.xcodeproj
 ## 📁 Project Structure
 
 ```
-cliphis/
-├── CliphisApp.swift         # App entry point
+clippie/
+├── ClippieApp.swift         # App entry point
 ├── AppDelegate.swift        # App lifecycle & hotkey setup
 ├── Models/
 │   └── ClipboardItem.swift  # Clipboard item data model

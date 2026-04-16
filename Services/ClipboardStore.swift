@@ -12,11 +12,15 @@ struct ClipboardTextChunkSource: Sendable {
 class ClipboardStore: ObservableObject {
     @Published var items: [ClipboardItem] = []
     
-    private var maxItems: Int { SettingsManager.shared.historyLimit.rawValue }
     private let fileManager = FileManager.default
-    private let saveQueue = DispatchQueue(label: "com.buffer.save", qos: .utility)
+    private let saveQueue = DispatchQueue(label: "com.clippie.save", qos: .utility)
     
     private var storageDirectory: URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("clippie", isDirectory: true)
+    }
+
+    private var legacyStorageDirectory: URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("Buffer", isDirectory: true)
     }
@@ -34,6 +38,7 @@ class ClipboardStore: ObservableObject {
     }
     
     init() {
+        migrateLegacyStorageIfNeeded()
         ensureDirectoriesExist()
         loadHistory()
         
@@ -44,16 +49,25 @@ class ClipboardStore: ObservableObject {
             object: nil
         )
     }
+
+    private func migrateLegacyStorageIfNeeded() {
+        let legacyURL = legacyStorageDirectory
+        let currentURL = storageDirectory
+
+        guard legacyURL != currentURL else { return }
+        guard fileManager.fileExists(atPath: legacyURL.path) else { return }
+        guard !fileManager.fileExists(atPath: currentURL.path) else { return }
+
+        do {
+            try fileManager.createDirectory(at: currentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.moveItem(at: legacyURL, to: currentURL)
+        } catch {
+            print("[clippie] Failed to migrate legacy storage: \(error)")
+        }
+    }
     
     @objc private func handleLimitChanged() {
-        guard items.count > maxItems else { return }
-        var trimmed = items
-        while trimmed.count > maxItems {
-            let removed = trimmed.removeLast()
-            deleteAssociatedFiles(for: removed)
-        }
-        items = trimmed
-        saveQueue.async { [weak self] in self?.saveHistoryToDisk(trimmed) }
+        applyHistoryRetention()
     }
     
     // MARK: - Public API
@@ -70,18 +84,14 @@ class ClipboardStore: ObservableObject {
     }
     
     private func performAdd(_ item: ClipboardItem) {
-        print("[Buffer] Store: Adding item, current count: \(items.count)")
+        print("[clippie] Store: Adding item, current count: \(items.count)")
         
         // Insert at beginning (newest first)
         items.insert(item, at: 0)
         
-        // Evict oldest item if over limit
-        if items.count > maxItems {
-            let removed = items.removeLast()
-            deleteAssociatedFiles(for: removed)
-        }
+        applyHistoryRetention(persist: false)
         
-        print("[Buffer] Store: New count: \(items.count)")
+        print("[clippie] Store: New count: \(items.count)")
         
         // Save to disk in background
         let itemsToSave = items
@@ -155,7 +165,7 @@ class ClipboardStore: ObservableObject {
             try data.write(to: url)
             return filename
         } catch {
-            print("[Buffer] Failed to save image: \(error)")
+            print("[clippie] Failed to save image: \(error)")
             return nil
         }
     }
@@ -169,7 +179,7 @@ class ClipboardStore: ObservableObject {
             try text.write(to: url, atomically: true, encoding: .utf8)
             return filename
         } catch {
-            print("[Buffer] Failed to save text file: \(error)")
+            print("[clippie] Failed to save text file: \(error)")
             return nil
         }
     }
@@ -182,7 +192,7 @@ class ClipboardStore: ObservableObject {
         do {
             return try String(contentsOf: url, encoding: .utf8)
         } catch {
-            print("[Buffer] Failed to load text file: \(error)")
+            print("[clippie] Failed to load text file: \(error)")
             return item.textContent // Fallback to inline preview
         }
     }
@@ -236,7 +246,7 @@ class ClipboardStore: ObservableObject {
                 return (exactChunkStr, totalBytes, reachedEOF)
                 
             } catch {
-                print("[Buffer] Failed to read text chunk: \(error)")
+                print("[clippie] Failed to read text chunk: \(error)")
                 return nil
             }
         } else {
@@ -286,17 +296,23 @@ class ClipboardStore: ObservableObject {
     
     private func loadHistory() {
         guard fileManager.fileExists(atPath: historyFileURL.path) else { 
-            print("[Buffer] No history file found")
+            print("[clippie] No history file found")
             return 
         }
         
         do {
             let data = try Data(contentsOf: historyFileURL)
             let loadedItems = try JSONDecoder().decode([ClipboardItem].self, from: data)
-            self.items = loadedItems
-            print("[Buffer] Loaded \(loadedItems.count) items from history")
+            let retentionResult = applyingHistoryRetention(to: loadedItems)
+            self.items = retentionResult.retained
+            retentionResult.removed.forEach(deleteAssociatedFiles(for:))
+            if !retentionResult.removed.isEmpty {
+                let retained = retentionResult.retained
+                saveQueue.async { [weak self] in self?.saveHistoryToDisk(retained) }
+            }
+            print("[clippie] Loaded \(retentionResult.retained.count) items from history")
         } catch {
-            print("[Buffer] Failed to load history: \(error)")
+            print("[clippie] Failed to load history: \(error)")
         }
     }
     
@@ -305,7 +321,7 @@ class ClipboardStore: ObservableObject {
             let data = try JSONEncoder().encode(itemsToSave)
             try data.write(to: historyFileURL)
         } catch {
-            print("[Buffer] Failed to save history: \(error)")
+            print("[clippie] Failed to save history: \(error)")
         }
     }
     
@@ -325,5 +341,25 @@ class ClipboardStore: ObservableObject {
     private func deleteAssociatedFiles(for item: ClipboardItem) {
         deleteImageFile(for: item)
         deleteTextFile(for: item)
+    }
+
+    private func applyHistoryRetention(persist: Bool = true) {
+        let retentionResult = applyingHistoryRetention(to: items)
+        guard retentionResult.removed.isEmpty == false else { return }
+
+        retentionResult.removed.forEach(deleteAssociatedFiles(for:))
+        items = retentionResult.retained
+
+        guard persist else { return }
+        let retained = retentionResult.retained
+        saveQueue.async { [weak self] in self?.saveHistoryToDisk(retained) }
+    }
+
+    private func applyingHistoryRetention(to items: [ClipboardItem], referenceDate: Date = Date()) -> (retained: [ClipboardItem], removed: [ClipboardItem]) {
+        let cutoffDate = SettingsManager.shared.historyLimit.cutoffDate(relativeTo: referenceDate)
+        let retained = items.filter { $0.timestamp >= cutoffDate }
+        let removedIDs = Set(retained.map(\.id))
+        let removed = items.filter { !removedIDs.contains($0.id) }
+        return (retained, removed)
     }
 }

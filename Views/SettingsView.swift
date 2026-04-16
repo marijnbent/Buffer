@@ -1,7 +1,7 @@
 import SwiftUI
 import ApplicationServices
 
-/// Settings view for configuring Buffer preferences
+/// Settings view for configuring clippie preferences
 struct SettingsView: View {
     @StateObject private var settings = SettingsViewModel()
     @StateObject private var snippetStore = SnippetStore.shared
@@ -15,15 +15,27 @@ struct SettingsView: View {
     @State private var snippetErrorMessage: String?
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            settingsCard { keyboardSection }
-            settingsCard { systemSection }
-            settingsCard { snippetsSection }
-                .frame(maxHeight: .infinity, alignment: .top)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 16)
+
+                settingsDivider
+
+                settingsSection { keyboardSection }
+                settingsDivider
+                settingsSection { systemSection }
+                settingsDivider
+                settingsSection { snippetsSection }
+                    .frame(maxHeight: .infinity, alignment: .top)
+
+                Spacer(minLength: 20)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(20)
-        .alert("Reduce History Limit?", isPresented: $showingTrimAlert) {
+        .alert("Reduce History Retention?", isPresented: $showingTrimAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reduce & Delete", role: .destructive) {
                 if let tier = pendingTier {
@@ -32,7 +44,7 @@ struct SettingsView: View {
                 }
             }
         } message: {
-            Text("This will permanently delete your oldest items to fit the new size. This action cannot be undone.")
+            Text("This will permanently delete clipboard history older than \(pendingTier?.label ?? "the selected period"). This action cannot be undone.")
         }
         .alert("Snippet", isPresented: Binding(
             get: { snippetErrorMessage != nil },
@@ -75,66 +87,82 @@ struct SettingsView: View {
         }
         .buttonStyle(.bordered)
     }
-    
+
+    // Thin hairline between sections — replaces card borders with breathing room
+    private var settingsDivider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.06))
+            .frame(height: 1)
+    }
+
+    private func settingsSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var header: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.12))
-                    .frame(width: 40, height: 40)
-                
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.accentColor)
-            }
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text("cliphis Settings")
-                    .font(.system(size: 17, weight: .semibold))
-                Text("Shortcuts, history, and snippets")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            }
-            
+        HStack(spacing: 10) {
+            Image(systemName: "scissors")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.accentColor)
+
+            Text("clippie")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.primary)
+
+            Text("Settings")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundColor(.secondary)
+
             Spacer()
         }
     }
     
     private var keyboardSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             sectionTitle("Keyboard Shortcut")
-            
-            HStack(spacing: 12) {
-                HStack(spacing: 4) {
+
+            HStack(spacing: 10) {
+                // Current shortcut key cap display
+                HStack(spacing: 3) {
                     Text(settings.hotkeyModifiers.displayString)
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
                     Text(keyCodeNames[settings.hotkeyKeyCode] ?? "?")
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isRecording ? Color.accentColor.opacity(0.16) : Color(NSColor.textBackgroundColor))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(isRecording
+                              ? Color.accentColor.opacity(0.1)
+                              : Color(NSColor.textBackgroundColor))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(isRecording ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(isRecording
+                                ? Color.accentColor.opacity(0.7)
+                                : Color.primary.opacity(0.1), lineWidth: 1)
                 )
-                
+                .animation(.easeInOut(duration: 0.15), value: isRecording)
+
                 Button(action: { isRecording.toggle() }) {
                     Text(isRecording ? "Cancel" : "Change")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .buttonStyle(.bordered)
-                
+
+                if isRecording {
+                    Text("Press shortcut…")
+                        .font(.system(size: 12))
+                        .foregroundColor(.accentColor)
+                        .transition(.opacity)
+                }
+
                 Spacer()
-            }
-            
-            if isRecording {
-                Text("Press your new shortcut...")
-                    .font(.system(size: 11))
-                    .foregroundColor(.accentColor)
             }
         }
     }
@@ -142,12 +170,23 @@ struct SettingsView: View {
     private var systemSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("System")
-            
+
             accessibilityPermissionRow
-            
+
+            // Hairline separator within section
+            Rectangle()
+                .fill(Color.primary.opacity(0.05))
+                .frame(height: 1)
+
+            // Launch at Login toggle row
             HStack {
-                Text("Launch at Login")
-                    .font(.system(size: 13, weight: .medium))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Launch at Login")
+                        .font(.system(size: 13))
+                    Text("Open clippie automatically when you log in")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 Toggle("", isOn: $settings.launchAtLogin)
                     .labelsHidden()
@@ -159,194 +198,223 @@ struct SettingsView: View {
                     }
                     .toggleStyle(.switch)
             }
-            
-            VStack(alignment: .leading, spacing: 10) {
-                sectionTitle("History Size")
-                
-                HStack(spacing: 12) {
-                    ForEach(HistoryLimit.allCases, id: \.self) { tier in
-                        Button(action: {
-                            if tier.rawValue < settings.historyLimit.rawValue {
-                                pendingTier = tier
-                                showingTrimAlert = true
-                            } else {
-                                settings.historyLimit = tier
-                                settings.save()
-                            }
-                        }) {
-                            VStack(alignment: .center, spacing: 6) {
-                                Image(systemName: settings.historyLimit == tier ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(settings.historyLimit == tier ? .accentColor : .secondary.opacity(0.3))
-                                    .font(.system(size: 14))
-                                
-                                Text(tier.label)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(settings.historyLimit == tier ? .primary : .secondary)
-                                
-                                Text(tier.subtitle)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary.opacity(0.8))
-                            }
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(settings.historyLimit == tier
-                                          ? Color.accentColor.opacity(0.1)
-                                          : Color(NSColor.textBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(settings.historyLimit == tier
-                                            ? Color.accentColor.opacity(0.9)
-                                            : Color.primary.opacity(0.06), lineWidth: 1)
-                            )
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.05))
+                .frame(height: 1)
+
+            historySizeRow
+        }
+    }
+
+    private var historySizeRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("History Retention")
+
+            // Compact segmented-style row: each tier is an equal-width button
+            HStack(spacing: 6) {
+                ForEach(HistoryLimit.allCases, id: \.self) { tier in
+                    let isSelected = settings.historyLimit == tier
+                    Button(action: {
+                        if tier.rawValue < settings.historyLimit.rawValue {
+                            pendingTier = tier
+                            showingTrimAlert = true
+                        } else {
+                            settings.historyLimit = tier
+                            settings.save()
                         }
-                        .buttonStyle(.plain)
+                    }) {
+                        VStack(spacing: 3) {
+                            Text(tier.label)
+                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                                .foregroundColor(isSelected ? .accentColor : .primary)
+                            Text(tier.subtitle)
+                                .font(.system(size: 10))
+                                .foregroundColor(isSelected ? .accentColor.opacity(0.7) : .secondary)
+                        }
+                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(isSelected
+                                      ? Color.accentColor.opacity(0.1)
+                                      : Color(NSColor.textBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(isSelected
+                                        ? Color.accentColor.opacity(0.55)
+                                        : Color.primary.opacity(0.08), lineWidth: 1)
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .animation(.easeInOut(duration: 0.12), value: isSelected)
                 }
             }
         }
     }
-    
+
     private var accessibilityPermissionRow: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: accessibilityPermission.isTrusted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(accessibilityPermission.isTrusted ? .green : .orange)
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Accessibility Permission")
-                        .font(.system(size: 13, weight: .medium))
-                    Text(accessibilityPermission.statusText)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
+        HStack(alignment: .center, spacing: 12) {
+            // Status dot — compact, not oversized
+            Circle()
+                .fill(accessibilityPermission.isTrusted ? Color.green : Color.orange)
+                .frame(width: 7, height: 7)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Accessibility")
+                    .font(.system(size: 13))
+                Text(accessibilityPermission.isTrusted
+                     ? "Granted"
+                     : "Not granted — required for text input features")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
-            
-            HStack(spacing: 8) {
-                Button(accessibilityPermission.isTrusted ? "Refresh" : "Request Access") {
-                    if accessibilityPermission.isTrusted {
-                        accessibilityPermission.refresh()
-                    } else {
-                        accessibilityPermission.requestAccess()
-                    }
+
+            Spacer()
+
+            if !accessibilityPermission.isTrusted {
+                Button("Request") {
+                    accessibilityPermission.requestAccess()
                 }
                 .buttonStyle(.borderedProminent)
-                
-                Button("Open System Settings") {
-                    accessibilityPermission.openSystemSettings()
+                .controlSize(.small)
+            } else {
+                Button("Refresh") {
+                    accessibilityPermission.refresh()
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
             }
+
+            Button("Open Settings") {
+                accessibilityPermission.openSystemSettings()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
     
     private var snippetsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("Snippets")
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    sectionTitle("Snippets")
+                    Text("Type : in any text field to search and insert snippets.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
-                Button(action: {
-                    editingSnippet = SnippetDraft()
-                }) {
-                    Label("Add", systemImage: "plus")
-                        .font(.system(size: 12, weight: .medium))
+                Button(action: { editingSnippet = SnippetDraft() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("New")
+                            .font(.system(size: 12, weight: .medium))
+                    }
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            
-            Text("Search with `:` in the clipboard window to show snippets.")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-            
+
             if snippetStore.snippets.isEmpty {
-                Text("No snippets yet.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 6)
-            } else {
-                ScrollView(.vertical, showsIndicators: true) {
-                    LazyVStack(spacing: 10) {
-                        ForEach(snippetStore.snippets) { snippet in
-                            HStack(alignment: .top, spacing: 10) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(snippet.displayTitle)
-                                        .font(.system(size: 12, weight: .semibold))
-                                    
-                                    Text(":\(snippet.trigger)")
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                    
-                                    Text(snippet.content)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                                
-                                Spacer()
-                                
-                                Button("Edit") {
-                                    editingSnippet = SnippetDraft(snippet: snippet)
-                                }
-                                .buttonStyle(.borderless)
-                                
-                                Button(role: .destructive) {
-                                    snippetStore.deleteSnippet(id: snippet.id)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color(NSColor.windowBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                            )
-                        }
+                HStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "text.quote")
+                            .font(.system(size: 22, weight: .thin))
+                            .foregroundColor(.secondary.opacity(0.3))
+                        Text("No snippets yet")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary.opacity(0.5))
                     }
-                    .padding(2)
+                    .padding(.vertical, 28)
+                    Spacer()
                 }
-                .frame(minHeight: 150, maxHeight: .infinity, alignment: .top)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(NSColor.textBackgroundColor).opacity(0.6))
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color(NSColor.textBackgroundColor).opacity(0.5))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+                )
+            } else {
+                // Flat list with hairline separators — no individual card borders
+                VStack(spacing: 0) {
+                    ForEach(Array(snippetStore.snippets.enumerated()), id: \.element.id) { index, snippet in
+                        if index > 0 {
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.05))
+                                .frame(height: 1)
+                                .padding(.leading, 10)
+                        }
+                        snippetRow(snippet)
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color(NSColor.textBackgroundColor).opacity(0.7))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.primary.opacity(0.07), lineWidth: 1)
                 )
             }
         }
+    }
+
+    private func snippetRow(_ snippet: Snippet) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            // Trigger badge
+            Text(":\(snippet.trigger)")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.accentColor.opacity(0.09),
+                            in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(snippet.displayTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(snippet.content)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button("Edit") {
+                editingSnippet = SnippetDraft(snippet: snippet)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(.accentColor)
+            .font(.system(size: 12))
+            .controlSize(.small)
+
+            Button(role: .destructive) {
+                snippetStore.deleteSnippet(id: snippet.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary.opacity(0.5))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
     }
     
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 13, weight: .medium))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundColor(.secondary)
-    }
-    
-    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            content()
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
-        )
+            .textCase(.uppercase)
+            .tracking(0.5)
     }
     
     private func saveSnippetDraft(_ draft: SnippetDraft) -> Bool {
@@ -481,7 +549,7 @@ final class AccessibilityPermissionViewModel: ObservableObject {
     
     var statusText: String {
         if isTrusted {
-            return "Granted. cliphis can monitor and control text input where needed."
+            return "Granted. clippie can monitor and control text input where needed."
         }
         return "Not granted. Needed for Accessibility-based input features."
     }

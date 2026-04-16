@@ -4,6 +4,8 @@ import ApplicationServices
 
 @MainActor
 final class SnippetExpansionController {
+    private static let maximumVisibleSuggestions = 3
+
     private let generatedEventMarker: Int64 = 0x425546464552
     private let store: SnippetStore
     private let suggestionWindowController = SnippetSuggestionWindowController()
@@ -14,6 +16,7 @@ final class SnippetExpansionController {
     private var matches: [Snippet] = []
     private var selectedIndex = 0
     private var activationObserver: NSObjectProtocol?
+    private var sessionAnchorRect: CGRect?
     
     init(store: SnippetStore) {
         self.store = store
@@ -35,7 +38,7 @@ final class SnippetExpansionController {
             },
             userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         ) else {
-            print("[Buffer] Failed to create snippet event tap")
+            print("[clippie] Failed to create snippet event tap")
             return
         }
         
@@ -129,6 +132,7 @@ final class SnippetExpansionController {
                 cancelSession()
             } else {
                 self.activeQuery = String(activeQuery.dropLast())
+                selectedIndex = 0
                 refreshSuggestionsAsync()
             }
             return false
@@ -145,7 +149,8 @@ final class SnippetExpansionController {
             activeQuery = ""
             matches = []
             selectedIndex = 0
-            suggestionWindowController.hide()
+            sessionAnchorRect = nil
+            refreshSuggestionsAsync()
             return
         }
         
@@ -159,6 +164,7 @@ final class SnippetExpansionController {
         let normalizedCharacters = Snippet.normalizeTrigger(characters)
         if normalizedCharacters.count == 1, let scalar = normalizedCharacters.first {
             self.activeQuery = activeQuery + String(scalar)
+            selectedIndex = 0
             refreshSuggestionsAsync()
             return
         }
@@ -178,17 +184,22 @@ final class SnippetExpansionController {
             return
         }
         
-        matches = Array(store.matches(for: activeQuery).prefix(5))
+        if let exactMatch = exactMatch(for: activeQuery) {
+            expand(exactMatch)
+            return
+        }
+
+        matches = store.expansionMatches(for: activeQuery, limit: Self.maximumVisibleSuggestions)
         if selectedIndex >= matches.count {
             selectedIndex = max(0, matches.count - 1)
         }
         
-        guard !activeQuery.isEmpty, !matches.isEmpty else {
+        guard !matches.isEmpty else {
             suggestionWindowController.hide()
             return
         }
         
-        let anchorRect = caretRect() ?? fallbackAnchorRect()
+        let anchorRect = resolvedSessionAnchorRect()
         suggestionWindowController.show(snippets: matches, selectedIndex: selectedIndex, anchorRect: anchorRect)
     }
     
@@ -196,6 +207,7 @@ final class SnippetExpansionController {
         activeQuery = nil
         matches = []
         selectedIndex = 0
+        sessionAnchorRect = nil
         suggestionWindowController.hide()
     }
     
@@ -211,8 +223,10 @@ final class SnippetExpansionController {
     private func expand(_ snippet: Snippet) {
         let deleteCount = (activeQuery?.count ?? 0) + 1
         cancelSession()
+        store.recordUsage(for: snippet.id)
         deleteTypedTrigger(characterCount: deleteCount)
         insertText(snippet.content)
+        playInsertionSound()
     }
     
     private func deleteTypedTrigger(characterCount: Int) {
@@ -267,12 +281,18 @@ final class SnippetExpansionController {
         guard AXValueGetValue(rangeValue, .cfRange, &selectedRange) else {
             return nil
         }
+
+        var insertionRange = selectedRange
+        insertionRange.length = 0
+        guard let insertionRangeValue = AXValueCreate(.cfRange, &insertionRange) else {
+            return nil
+        }
         
         var boundsRef: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(
             focusedElement,
             kAXBoundsForRangeParameterizedAttribute as CFString,
-            rangeValue,
+            insertionRangeValue,
             &boundsRef
         ) == .success,
         let boundsRef,
@@ -286,12 +306,39 @@ final class SnippetExpansionController {
             return nil
         }
         
+        if bounds.width <= 0 {
+            bounds.size.width = 1
+        }
+
         return bounds
     }
     
     private func fallbackAnchorRect() -> CGRect {
         let mouseLocation = NSEvent.mouseLocation
         return CGRect(x: mouseLocation.x, y: mouseLocation.y, width: 1, height: 1)
+    }
+
+    private func resolvedSessionAnchorRect() -> CGRect {
+        if let caretRect = caretRect() {
+            sessionAnchorRect = caretRect
+            return caretRect
+        }
+
+        if let sessionAnchorRect {
+            return sessionAnchorRect
+        }
+
+        let anchorRect = fallbackAnchorRect()
+        sessionAnchorRect = anchorRect
+        return anchorRect
+    }
+
+    private func exactMatch(for query: String) -> Snippet? {
+        store.exactTriggerMatch(for: query)
+    }
+
+    private func playInsertionSound() {
+        NSSound(named: NSSound.Name("Pop"))?.play()
     }
 }
 
@@ -348,8 +395,10 @@ private final class SnippetSuggestionWindowController: NSWindowController {
     }
     
     private func preferredOrigin(for anchorRect: CGRect, popupSize: CGSize) -> CGPoint {
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(mouseLocation) }) ?? NSScreen.main
+        let anchorPoint = CGPoint(x: anchorRect.midX, y: anchorRect.midY)
+        let screen = NSScreen.screens.first(where: {
+            $0.frame.contains(anchorPoint) || $0.visibleFrame.intersects(anchorRect)
+        }) ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         
         var x = anchorRect.minX

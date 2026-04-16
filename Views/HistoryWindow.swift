@@ -24,10 +24,75 @@ private struct ChunkedTextState {
     var hasMore: Bool { !reachedEOF && loadedCharCount >= Self.initialChars }
 }
 
+private struct VisualEffectBackdropView: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+    var emphasized = true
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            ? .windowBackground
+            : material
+        nsView.blendingMode = blendingMode
+        nsView.state = .active
+        nsView.isEmphasized = emphasized
+    }
+}
+
+private struct GlassPanelBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var reduceTransparency: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+
+    private var overlayOpacity: Double {
+        if reduceTransparency {
+            return 0.96
+        }
+
+        return colorScheme == .dark ? 0.3 : 0.18
+    }
+
+    private var highlightOpacity: Double {
+        if reduceTransparency {
+            return 0
+        }
+
+        return colorScheme == .dark ? 0.08 : 0.16
+    }
+
+    var body: some View {
+        ZStack {
+            VisualEffectBackdropView(material: .hudWindow)
+
+            Color(NSColor.windowBackgroundColor)
+                .opacity(overlayOpacity)
+
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(highlightOpacity),
+                    Color.white.opacity(0)
+                ],
+                startPoint: .top,
+                endPoint: .center
+            )
+        }
+    }
+}
+
 /// Manages the floating history window
 class HistoryWindowController: NSWindowController {
     private let store: ClipboardStore
     private var targetApplicationForPaste: NSRunningApplication?
+    private var storedStandardFrame: NSRect?
+    private var isPresentingImagePreview = false
     
     init(store: ClipboardStore) {
         self.store = store
@@ -79,35 +144,45 @@ class HistoryWindowController: NSWindowController {
         ) { _ in
             NotificationCenter.default.post(name: .bufferWindowDidOpen, object: nil)
         }
+
+        NotificationCenter.default.addObserver(
+            forName: .bufferImagePreviewPresentationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let isPresented = notification.userInfo?["isPresented"] as? Bool ?? false
+            self.updateImagePreviewPresentation(isPresented)
+        }
     }
     
     private func setupContent() {
-        let contentView = HistoryContentView(
-            store: store,
-            onCopyToClipboard: { [weak self] item in
-                self?.copyToClipboard(item)
-            },
-            onPaste: { [weak self] item in
-                self?.pasteItem(item)
-            },
-            onCopyText: { [weak self] text in
-                self?.copyTextToClipboard(text)
-            },
-            onPasteText: { [weak self] text in
-                self?.pasteText(text)
-            },
-            onDismiss: { [weak self] in
-                self?.close()
-            }
-        )
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(NSColor.windowBackgroundColor))
-        )
+        let contentView = ZStack {
+            GlassPanelBackground()
+
+            HistoryContentView(
+                store: store,
+                onCopyToClipboard: { [weak self] item in
+                    self?.copyToClipboard(item)
+                },
+                onPaste: { [weak self] item in
+                    self?.pasteItem(item)
+                },
+                onCopyText: { [weak self] text in
+                    self?.copyTextToClipboard(text)
+                },
+                onPasteText: { [weak self] text in
+                    self?.pasteText(text)
+                },
+                onDismiss: { [weak self] in
+                    self?.close()
+                }
+            )
+        }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
         )
         
         window?.contentView = NSHostingView(rootView: contentView)
@@ -139,11 +214,55 @@ class HistoryWindowController: NSWindowController {
     
     override func showWindow(_ sender: Any?) {
         captureCurrentTargetApplication()
-        window?.center()
+        if !isPresentingImagePreview {
+            window?.center()
+        }
         super.showWindow(sender)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(window?.contentView)
+    }
+
+    private func updateImagePreviewPresentation(_ isPresented: Bool) {
+        guard let panel = window else { return }
+
+        if isPresented {
+            guard !isPresentingImagePreview else { return }
+            isPresentingImagePreview = true
+            storedStandardFrame = panel.frame
+            panel.level = .modalPanel
+
+            guard let screen = panel.screen ?? NSScreen.main else { return }
+            let visibleFrame = screen.visibleFrame
+            let targetWidth = max(720, floor(visibleFrame.width * 0.7))
+            let targetHeight = max(520, floor(visibleFrame.height * 0.82))
+            let frame = NSRect(
+                x: visibleFrame.midX - (targetWidth / 2),
+                y: visibleFrame.midY - (targetHeight / 2),
+                width: targetWidth,
+                height: targetHeight
+            )
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                panel.animator().setFrame(frame, display: true)
+            }
+            return
+        }
+
+        guard isPresentingImagePreview else { return }
+        isPresentingImagePreview = false
+        panel.level = .floating
+
+        guard let storedStandardFrame else { return }
+        self.storedStandardFrame = nil
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(storedStandardFrame, display: true)
+        }
     }
 
     private func captureCurrentTargetApplication() {
@@ -166,6 +285,7 @@ extension Notification.Name {
     static let bufferHotkeyChanged = Notification.Name("bufferHotkeyChanged")
     static let bufferWindowDidOpen = Notification.Name("bufferWindowDidOpen")
     static let bufferHistoryLimitChanged = Notification.Name("bufferHistoryLimitChanged")
+    static let bufferImagePreviewPresentationChanged = Notification.Name("bufferImagePreviewPresentationChanged")
 }
 
 private enum HistorySelectionID: Hashable {
@@ -199,6 +319,7 @@ private enum HistorySearchResult: Identifiable {
 private enum DetailPaneMode: Equatable {
     case preview
     case quickActions
+    case imagePreview
 }
 
 private enum QuickActionRoute: Equatable {
@@ -206,6 +327,14 @@ private enum QuickActionRoute: Equatable {
     case saveSnippet
     case addToSnippet
     case confirmDelete
+}
+
+private enum QuickActionHomeOption: Equatable {
+    case showLargerImage
+    case saveSnippet
+    case addToSnippet
+    case runOCR
+    case deleteHistory
 }
 
 private struct SnippetRow: View {
@@ -265,6 +394,84 @@ private struct SnippetRow: View {
     }
 }
 
+private struct QuickActionRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let isSelected: Bool
+    let isDestructive: Bool
+    let action: () -> Void
+    let onHoverSelection: () -> Void
+
+    @State private var isHovered = false
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return isDestructive ? Color.red.opacity(0.08) : Color.accentColor.opacity(0.15)
+        } else if isHovered {
+            return Color.primary.opacity(0.05)
+        }
+        return Color.clear
+    }
+
+    private var backgroundCornerRadius: CGFloat {
+        isSelected ? 0 : 4
+    }
+
+    private var iconTint: Color {
+        isDestructive ? .red : (isSelected ? .accentColor : .secondary)
+    }
+
+    private var titleTint: Color {
+        isDestructive ? .red : .primary
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13))
+                    .foregroundColor(iconTint)
+                    .frame(width: 18, height: 18)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 14))
+                        .foregroundColor(titleTint)
+                        .lineLimit(1)
+
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if isSelected {
+                    Image(systemName: "return")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                backgroundColor,
+                in: RoundedRectangle(cornerRadius: backgroundCornerRadius, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering {
+                onHoverSelection()
+            }
+        }
+    }
+}
+
 /// Main content view - Split pane with list and detail
 struct HistoryContentView: View {
     private static let initialVisibleClipboardItemLimit = 50
@@ -291,6 +498,7 @@ struct HistoryContentView: View {
     @State private var snippetDraftContent = ""
     @State private var snippetTargetSearch = ""
     @State private var selectedSnippetTargetID: UUID?
+    @State private var quickActionHomeSelection = 0
     @State private var quickActionMessage: String?
     @State private var quickActionError: String?
     
@@ -389,27 +597,67 @@ struct HistoryContentView: View {
         guard let selectedSnippetTargetID else { return filteredSnippetTargets.first }
         return filteredSnippetTargets.first(where: { $0.id == selectedSnippetTargetID }) ?? filteredSnippetTargets.first
     }
+
+    private var visibleSnippetTargets: [Snippet] {
+        Array(filteredSnippetTargets.prefix(8))
+    }
+
+    private var reduceTransparencyEnabled: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+
+    private var chromeSurfaceFill: Color {
+        Color(NSColor.windowBackgroundColor).opacity(reduceTransparencyEnabled ? 0.96 : 0.34)
+    }
+
+    private var paneSurfaceFill: Color {
+        Color(NSColor.controlBackgroundColor).opacity(reduceTransparencyEnabled ? 0.98 : 0.2)
+    }
+
+    private var cardSurfaceFill: Color {
+        Color(NSColor.textBackgroundColor).opacity(reduceTransparencyEnabled ? 1 : 0.62)
+    }
+
+    private var inputSurfaceFill: Color {
+        Color(NSColor.textBackgroundColor).opacity(reduceTransparencyEnabled ? 1 : 0.5)
+    }
+
+    private var surfaceStroke: Color {
+        Color.primary.opacity(reduceTransparencyEnabled ? 0.08 : 0.12)
+    }
+
+    private var isImagePreviewActive: Bool {
+        detailPaneMode == .imagePreview && selectedItem?.type == .image
+    }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Search bar
-            searchBar
-            
-            Divider()
-            
-            // Split pane: List + Detail
-            HSplitView {
-                // Left: List
-                listPane
-                    .frame(minWidth: 300, maxWidth: 340)
-                
-                // Right: Detail
-                detailPane
-                    .frame(minWidth: 260)
+        Group {
+            if isImagePreviewActive, let item = selectedItem {
+                imagePreviewPane(for: item)
+            } else {
+                VStack(spacing: 0) {
+                    // Search bar
+                    searchBar
+                    
+                    Divider()
+                    
+                    // Split pane: List + Detail
+                    HSplitView {
+                        // Left: List
+                        listPane
+                            .frame(minWidth: 300, maxWidth: 340)
+                        
+                        // Right: Detail
+                        detailPane
+                            .frame(minWidth: 260)
+                    }
+                }
             }
         }
-        .frame(minWidth: 580, minHeight: 400)
-        .background(Color(NSColor.windowBackgroundColor))
+        .frame(
+            minWidth: isImagePreviewActive ? 720 : 580,
+            minHeight: isImagePreviewActive ? 520 : 400
+        )
         .onChange(of: searchText) { _ in
             resetQuickActionState()
             selectedIndex = 0
@@ -482,12 +730,18 @@ struct HistoryContentView: View {
                 scrollTrigger = true
                 navigateDown()
             },
-            onEnter: {
-                if let result = selectedResult {
-                    activateResult(result)
-                }
+            onLeft: {
+                navigateLeft()
             },
-            onEscape: onDismiss,
+            onRight: {
+                navigateRight()
+            },
+            onEnter: {
+                activateCurrentSelection()
+            },
+            onEscape: {
+                handleEscape()
+            },
             onDelete: {
                 if let item = selectedItem {
                     deleteSelectedItem(item)
@@ -611,9 +865,7 @@ struct HistoryContentView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        // Use windowBackgroundColor so the bar blends with the panel rather than
-        // appearing heavier than the content area
-        .background(Color(NSColor.windowBackgroundColor))
+        .background(chromeSurfaceFill)
     }
     
     private var listPane: some View {
@@ -675,19 +927,18 @@ struct HistoryContentView: View {
                 }
             }
         }
-        // Slightly tinted list background distinguishes pane from detail
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
+        // Keep the list readable, but let the glass show through underneath.
+        .background(paneSurfaceFill)
     }
     
     private var detailPane: some View {
         Group {
             if let item = selectedItem {
                 VStack(spacing: 0) {
-                    detailPaneHeader(for: item)
-                    Divider()
-
                     if detailPaneMode == .quickActions {
                         quickActionsPane(for: item)
+                    } else if detailPaneMode == .imagePreview {
+                        imagePreviewPane(for: item)
                     } else {
                         previewPane(for: item)
                     }
@@ -711,42 +962,6 @@ struct HistoryContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-    }
-
-    private func detailPaneHeader(for item: ClipboardItem) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(detailPaneMode == .quickActions ? "Quick Actions" : "Preview")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(detailPaneMode == .quickActions ? quickActionSubtitle(for: item) : fullCopiedText(for: item.timestamp))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary.opacity(0.85))
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            if detailPaneMode == .quickActions {
-                Button("Back") {
-                    detailPaneMode = .preview
-                    quickActionRoute = .home
-                    quickActionMessage = nil
-                    quickActionError = nil
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            } else {
-                Button {
-                    openQuickActions(for: item)
-                } label: {
-                    Label("Quick Actions", systemImage: "ellipsis.circle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     private func previewPane(for item: ClipboardItem) -> some View {
@@ -779,261 +994,380 @@ struct HistoryContentView: View {
         }
     }
 
-    private func quickActionsPane(for item: ClipboardItem) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let quickActionMessage {
-                    quickActionStatus(text: quickActionMessage, systemImage: "checkmark.circle.fill", tint: .green)
+    private func imagePreviewPane(for item: ClipboardItem) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: closeDetailOverlay) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.accentColor)
                 }
+                .buttonStyle(.plain)
 
-                if let quickActionError {
-                    quickActionStatus(text: quickActionError, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                Spacer()
+
+                if let size = itemSize, size > 0 {
+                    Text(formattedByteCount(size))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.75))
+                        .monospacedDigit()
                 }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(chromeSurfaceFill)
 
-                switch quickActionRoute {
-                case .home:
-                    quickActionsHomePane(for: item)
-                case .saveSnippet:
-                    quickActionSaveSnippetPane(for: item)
-                case .addToSnippet:
-                    quickActionAddToSnippetPane(for: item)
-                case .confirmDelete:
-                    quickActionDeletePane(for: item)
+            Rectangle()
+                .fill(Color.primary.opacity(0.07))
+                .frame(height: 1)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.black.opacity(reduceTransparencyEnabled ? 0.06 : 0.1))
+
+                if let img = previewImage {
+                    ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(24)
+                    }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.05))
+                .frame(height: 1)
+
+            HStack {
+                Text(fullCopiedText(for: item.timestamp))
+                Spacer()
+                Text("Esc or Left Arrow to close")
+            }
+            .font(.system(size: 11))
+            .foregroundColor(.secondary.opacity(0.7))
+            .monospacedDigit()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
     }
 
-    private func quickActionsHomePane(for item: ClipboardItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            quickActionButton(
-                title: "Save as Snippet",
-                subtitle: selectedItemActionText == nil
-                    ? "Needs text content first"
-                    : "Create a new reusable snippet from this item",
-                systemImage: "square.and.arrow.down"
-            ) {
-                openQuickActions(for: item, route: .saveSnippet)
+    private func quickActionsPane(for item: ClipboardItem) -> some View {
+        VStack(spacing: 0) {
+            // Sub-screen header with back chevron (hidden on home)
+            if quickActionRoute != .home {
+                quickActionsSubScreenHeader(for: item)
+                Rectangle()
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(height: 1)
             }
-            .disabled(selectedItemActionText == nil)
 
-            quickActionButton(
-                title: "Add to Snippet",
-                subtitle: snippetStore.snippets.isEmpty
-                    ? "Create a snippet first"
-                    : "Append this value to one of your saved snippets",
-                systemImage: "text.insert"
-            ) {
-                openQuickActions(for: item, route: .addToSnippet)
-            }
-            .disabled(selectedItemActionText == nil || snippetStore.snippets.isEmpty)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Status banners sit at the top of content
+                    if let quickActionMessage {
+                        quickActionStatus(text: quickActionMessage, systemImage: "checkmark.circle.fill", tint: .green)
+                    }
+                    if let quickActionError {
+                        quickActionStatus(text: quickActionError, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                    }
 
-            if item.type == .image {
-                quickActionButton(
-                    title: item.ocrText == nil ? "Run OCR" : "Refresh OCR",
-                    subtitle: item.ocrText == nil
-                        ? "Extract text so the image can be reused"
-                        : "Extract the text again from this image",
-                    systemImage: isExtractingText ? "ellipsis.circle" : "text.viewfinder"
-                ) {
-                    runOCR(for: item)
+                    switch quickActionRoute {
+                    case .home:
+                        quickActionsHomePane(for: item)
+                    case .saveSnippet:
+                        quickActionSaveSnippetPane(for: item)
+                    case .addToSnippet:
+                        quickActionAddToSnippetPane(for: item)
+                    case .confirmDelete:
+                        quickActionDeletePane(for: item)
+                    }
                 }
-                .disabled(isExtractingText)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+        }
+    }
 
-            quickActionButton(
-                title: "Delete from History",
-                subtitle: "Remove this clipboard item and its stored files",
-                systemImage: "trash",
-                isDestructive: true
-            ) {
-                quickActionMessage = nil
-                quickActionError = nil
-                quickActionRoute = .confirmDelete
+    // Back button header shared by all sub-screens
+    private func quickActionsSubScreenHeader(for item: ClipboardItem) -> some View {
+        HStack(spacing: 4) {
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    quickActionRoute = .home
+                    quickActionError = nil
+                    quickActionMessage = nil
+                }
+            }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Actions")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(chromeSurfaceFill)
+    }
+
+    private func quickActionsHomePane(for item: ClipboardItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 4) {
+                let options = quickActionOptions(for: item)
+                ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                    let isDestructive = option == .deleteHistory
+                    let isSelected = index == quickActionHomeSelection
+
+                    if isDestructive, index > 0 {
+                        Color.clear
+                            .frame(height: 6)
+                    }
+
+                    QuickActionRow(
+                        title: quickActionTitle(for: option, item: item),
+                        subtitle: quickActionSubtitle(for: option, item: item),
+                        systemImage: quickActionSystemImage(for: option),
+                        isSelected: isSelected,
+                        isDestructive: isDestructive,
+                        action: {
+                            quickActionHomeSelection = index
+                            activateQuickAction(option, for: item)
+                        },
+                        onHoverSelection: {
+                            quickActionHomeSelection = index
+                        }
+                    )
+                }
             }
 
             if let warning = selectedItemActionWarning {
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                    Text(warning)
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.secondary)
+                .padding(.top, 8)
             }
         }
     }
 
     private func quickActionSaveSnippetPane(for item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Save as Snippet")
-                .font(.system(size: 16, weight: .semibold))
-
             if selectedItemActionText == nil {
-                Text(selectedItemActionWarning ?? "This item does not have text available for snippets.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                // No-text warning state
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 13))
+                        .foregroundColor(.orange)
+                    Text(selectedItemActionWarning ?? "This item does not have text available for snippets.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.07),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Label (optional)")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
-                    TextField("Snippet label", text: $snippetDraftTitle)
-                        .textFieldStyle(.roundedBorder)
-                }
+                snippetFormField(label: "Label", placeholder: "Optional name", text: $snippetDraftTitle)
+                snippetFormField(label: "Trigger", placeholder: "shortcut", text: $snippetDraftTrigger)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Trigger")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
-                    TextField("shortcut", text: $snippetDraftTrigger)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Text")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 5) {
+                    quickFormLabel("Text")
                     TextEditor(text: $snippetDraftContent)
                         .font(.system(size: 12))
-                        .frame(minHeight: 150)
+                        .frame(minHeight: 100)
+                        .scrollContentBackground(.hidden)
+                        .background(inputSurfaceFill)
                         .overlay(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                                .stroke(surfaceStroke, lineWidth: 1)
                         )
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
             }
 
-            HStack {
-                Button("Back") {
-                    quickActionRoute = .home
-                    quickActionError = nil
-                    quickActionMessage = nil
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button("Save Snippet") {
-                    saveSnippetFromQuickActions()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(selectedItemActionText == nil)
+            // CTA at bottom
+            Button("Save Snippet") {
+                saveSnippetFromQuickActions()
             }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity)
+            .disabled(selectedItemActionText == nil)
         }
     }
 
     private func quickActionAddToSnippetPane(for item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Add to Snippet")
-                .font(.system(size: 16, weight: .semibold))
-
             if snippetStore.snippets.isEmpty {
-                Text("Create a snippet first, then you can append clipboard values to it here.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            } else if selectedItemActionText == nil {
-                Text(selectedItemActionWarning ?? "This item does not have text available for snippets.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            } else {
-                TextField("Search snippets", text: $snippetTargetSearch)
-                    .textFieldStyle(.roundedBorder)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(filteredSnippetTargets.prefix(8))) { snippet in
-                        Button {
-                            selectedSnippetTargetID = snippet.id
-                        } label: {
-                            HStack(spacing: 10) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(snippet.displayTitle)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.primary)
-                                    Text(":\(snippet.trigger)")
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer(minLength: 0)
-                                if selectedSnippetTarget?.id == snippet.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .background(
-                                (selectedSnippetTarget?.id == snippet.id ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.06)),
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                    Text("Create a snippet first, then you can append clipboard content to it here.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.07),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if selectedItemActionText == nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 13))
+                        .foregroundColor(.orange)
+                    Text(selectedItemActionWarning ?? "This item does not have text available.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.07),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                // Search field
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    TextField("Filter snippets", text: $snippetTargetSearch)
+                        .font(.system(size: 12))
+                        .textFieldStyle(.plain)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(inputSurfaceFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(surfaceStroke, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
+                // Snippet picker list
                 if filteredSnippetTargets.isEmpty {
                     Text("No snippets match that search.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
-                } else if let snippet = selectedSnippetTarget {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Selected snippet")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                        Text(snippet.displayTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                        Text(snippet.content)
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .lineLimit(3)
+                        .padding(.vertical, 4)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(Array(visibleSnippetTargets.enumerated()), id: \.element.id) { index, snippet in
+                            let isSelected = selectedSnippetTarget?.id == snippet.id
+
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(Color.primary.opacity(0.05))
+                                    .frame(height: 1)
+                            }
+
+                            Button {
+                                selectedSnippetTargetID = snippet.id
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(":\(snippet.trigger)")
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(.accentColor)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor.opacity(0.09),
+                                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+
+                                    Text(snippet.displayTitle)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+
+                                    Spacer(minLength: 0)
+
+                                    if isSelected {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(.accentColor)
+                                    }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(isSelected ? Color.accentColor.opacity(0.08) : Color.clear)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(cardSurfaceFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(surfaceStroke, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
 
-            HStack {
-                Button("Back") {
-                    quickActionRoute = .home
-                    quickActionError = nil
-                    quickActionMessage = nil
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button("Add to Snippet") {
-                    appendToSelectedSnippet()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(selectedItemActionText == nil || selectedSnippetTarget == nil)
+            // CTA
+            Button("Add to Snippet") {
+                appendToSelectedSnippet()
             }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity)
+            .disabled(selectedItemActionText == nil || selectedSnippetTarget == nil)
         }
     }
 
     private func quickActionDeletePane(for item: ClipboardItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Delete from History")
-                .font(.system(size: 16, weight: .semibold))
-
-            Text("This removes the selected clipboard item from history.")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-
-            HStack {
-                Button("Back") {
-                    quickActionRoute = .home
-                    quickActionError = nil
-                    quickActionMessage = nil
+            // Warning block
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "trash")
+                    .font(.system(size: 13))
+                    .foregroundColor(.red)
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Remove from History")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Text("This clipboard item will be permanently removed. This cannot be undone.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button("Delete", role: .destructive) {
-                    deleteSelectedItem(item)
-                }
-                .buttonStyle(.borderedProminent)
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.red.opacity(0.06),
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.red.opacity(0.12), lineWidth: 1)
+            )
+
+            Button(role: .destructive) {
+                deleteSelectedItem(item)
+            } label: {
+                Text("Delete")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
         }
     }
 
@@ -1047,37 +1381,30 @@ struct HistoryContentView: View {
             .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func quickActionButton(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isDestructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 15))
-                    .foregroundColor(isDestructive ? .red : .accentColor)
-                    .frame(width: 18)
+    // Helpers for sub-screen form fields
+    private func quickFormLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(.secondary)
+            .textCase(.uppercase)
+            .tracking(0.3)
+    }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(isDestructive ? .red : .primary)
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    private func snippetFormField(label: String, placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            quickFormLabel(label)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(inputSurfaceFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(surfaceStroke, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .buttonStyle(.plain)
     }
     
     private var emptyStateText: String {
@@ -1108,6 +1435,13 @@ struct HistoryContentView: View {
             Button("Quick Actions") {
                 selectResult(at: index)
                 openQuickActions(for: item)
+            }
+
+            if item.type == .image {
+                Button("Show Larger") {
+                    selectResult(at: index)
+                    openImagePreview(for: item)
+                }
             }
 
             Button("Save as Snippet") {
@@ -1156,21 +1490,95 @@ struct HistoryContentView: View {
         }
     }
 
-    private func quickActionSubtitle(for item: ClipboardItem) -> String {
-        switch item.type {
-        case .text:
-            return "Snippet and history actions for this text item"
-        case .image:
-            if item.ocrText == nil {
-                return "Run OCR, then reuse or remove this image"
-            }
-            return "OCR, snippet, and history actions for this image"
+    private func quickActionOptions(for item: ClipboardItem) -> [QuickActionHomeOption] {
+        var options: [QuickActionHomeOption] = []
+
+        if item.type == .image {
+            options.append(.showLargerImage)
+        }
+
+        options.append(contentsOf: [.saveSnippet, .addToSnippet])
+
+        if item.type == .image {
+            options.append(.runOCR)
+        }
+
+        options.append(.deleteHistory)
+        return options
+    }
+
+    private func quickActionTitle(for option: QuickActionHomeOption, item: ClipboardItem) -> String {
+        switch option {
+        case .showLargerImage:
+            return "Show Larger"
+        case .saveSnippet:
+            return "Save as Snippet"
+        case .addToSnippet:
+            return "Add to Snippet"
+        case .runOCR:
+            return item.ocrText == nil ? "Run OCR" : "Refresh OCR"
+        case .deleteHistory:
+            return "Delete from History"
+        }
+    }
+
+    private func quickActionSubtitle(for option: QuickActionHomeOption, item: ClipboardItem) -> String {
+        switch option {
+        case .showLargerImage:
+            return "Open a larger in-app preview for this image"
+        case .saveSnippet:
+            return selectedItemActionText == nil
+                ? "Needs text content first"
+                : "Create a new reusable snippet from this item"
+        case .addToSnippet:
+            return snippetStore.snippets.isEmpty
+                ? "Create a snippet first"
+                : "Append this value to one of your saved snippets"
+        case .runOCR:
+            return item.ocrText == nil
+                ? "Extract text so the image can be reused"
+                : "Extract the text again from this image"
+        case .deleteHistory:
+            return "Remove this clipboard item and its stored files"
+        }
+    }
+
+    private func quickActionSystemImage(for option: QuickActionHomeOption) -> String {
+        switch option {
+        case .showLargerImage:
+            return "arrow.up.left.and.arrow.down.right"
+        case .saveSnippet:
+            return "square.and.arrow.down"
+        case .addToSnippet:
+            return "text.insert"
+        case .runOCR:
+            return isExtractingText ? "ellipsis.circle" : "text.viewfinder"
+        case .deleteHistory:
+            return "trash"
+        }
+    }
+
+    private func activateQuickAction(_ option: QuickActionHomeOption, for item: ClipboardItem) {
+        switch option {
+        case .showLargerImage:
+            openImagePreview(for: item)
+        case .saveSnippet:
+            openQuickActions(for: item, route: .saveSnippet)
+        case .addToSnippet:
+            openQuickActions(for: item, route: .addToSnippet)
+        case .runOCR:
+            runOCR(for: item)
+        case .deleteHistory:
+            quickActionMessage = nil
+            quickActionError = nil
+            quickActionRoute = .confirmDelete
         }
     }
 
     private func resetQuickActionState() {
-        detailPaneMode = .preview
+        setDetailPaneMode(.preview)
         quickActionRoute = .home
+        quickActionHomeSelection = 0
         snippetDraftTitle = ""
         snippetDraftTrigger = ""
         snippetDraftContent = ""
@@ -1243,22 +1651,29 @@ struct HistoryContentView: View {
     }
 
     private func openQuickActions(for item: ClipboardItem, route: QuickActionRoute = .home) {
-        detailPaneMode = .quickActions
+        setDetailPaneMode(.quickActions)
         quickActionRoute = route
         quickActionMessage = nil
         quickActionError = nil
 
         switch route {
         case .home:
-            break
+            quickActionHomeSelection = 0
         case .saveSnippet:
             prepareSnippetDraft(for: item)
         case .addToSnippet:
             snippetTargetSearch = ""
-            selectedSnippetTargetID = snippetStore.snippets.first?.id
+            selectedSnippetTargetID = visibleSnippetTargets.first?.id
         case .confirmDelete:
             break
         }
+    }
+
+    private func openImagePreview(for item: ClipboardItem) {
+        guard item.type == .image else { return }
+        setDetailPaneMode(.imagePreview)
+        quickActionMessage = nil
+        quickActionError = nil
     }
 
     private func saveSnippetFromQuickActions() {
@@ -1322,7 +1737,7 @@ struct HistoryContentView: View {
             return
         }
 
-        detailPaneMode = .quickActions
+        setDetailPaneMode(.quickActions)
         quickActionRoute = .home
         quickActionMessage = nil
         quickActionError = nil
@@ -1347,6 +1762,32 @@ struct HistoryContentView: View {
         quickActionMessage = nil
         quickActionError = nil
         store.delete(item)
+    }
+
+    private func activateCurrentSelection() {
+        if detailPaneMode == .quickActions, let item = selectedItem {
+            switch quickActionRoute {
+            case .home:
+                let options = quickActionOptions(for: item)
+                guard options.indices.contains(quickActionHomeSelection) else { return }
+                activateQuickAction(options[quickActionHomeSelection], for: item)
+            case .saveSnippet:
+                break
+            case .addToSnippet:
+                appendToSelectedSnippet()
+            case .confirmDelete:
+                deleteSelectedItem(item)
+            }
+            return
+        }
+
+        if detailPaneMode == .imagePreview {
+            return
+        }
+
+        if let result = selectedResult {
+            activateResult(result)
+        }
     }
 
     private func selectResult(at index: Int) {
@@ -1497,15 +1938,121 @@ struct HistoryContentView: View {
     }
     
     private func navigateUp() {
+        if detailPaneMode == .imagePreview {
+            return
+        }
+
+        if detailPaneMode == .quickActions {
+            switch quickActionRoute {
+            case .home:
+                quickActionHomeSelection = max(quickActionHomeSelection - 1, 0)
+            case .addToSnippet:
+                guard let currentID = selectedSnippetTargetID,
+                      let currentIndex = visibleSnippetTargets.firstIndex(where: { $0.id == currentID }) else {
+                    selectedSnippetTargetID = visibleSnippetTargets.first?.id
+                    return
+                }
+                selectedSnippetTargetID = visibleSnippetTargets[safe: max(currentIndex - 1, 0)]?.id
+            case .saveSnippet, .confirmDelete:
+                break
+            }
+            return
+        }
+
         if selectedIndex > 0 {
             selectedIndex -= 1
         }
     }
     
     private func navigateDown() {
+        if detailPaneMode == .imagePreview {
+            return
+        }
+
+        if detailPaneMode == .quickActions {
+            switch quickActionRoute {
+            case .home:
+                guard let item = selectedItem else { return }
+                let maxIndex = max(quickActionOptions(for: item).count - 1, 0)
+                quickActionHomeSelection = min(quickActionHomeSelection + 1, maxIndex)
+            case .addToSnippet:
+                guard !visibleSnippetTargets.isEmpty else { return }
+                guard let currentID = selectedSnippetTargetID,
+                      let currentIndex = visibleSnippetTargets.firstIndex(where: { $0.id == currentID }) else {
+                    selectedSnippetTargetID = visibleSnippetTargets.first?.id
+                    return
+                }
+                selectedSnippetTargetID = visibleSnippetTargets[safe: min(currentIndex + 1, visibleSnippetTargets.count - 1)]?.id
+            case .saveSnippet, .confirmDelete:
+                break
+            }
+            return
+        }
+
         if selectedIndex < filteredResults.count - 1 {
             selectedIndex += 1
         }
+    }
+
+    private func navigateLeft() {
+        switch detailPaneMode {
+        case .imagePreview:
+            closeDetailOverlay()
+        case .quickActions:
+            switch quickActionRoute {
+            case .home:
+                closeDetailOverlay()
+            case .saveSnippet, .addToSnippet, .confirmDelete:
+                quickActionRoute = .home
+                quickActionMessage = nil
+                quickActionError = nil
+            }
+        case .preview:
+            break
+        }
+    }
+
+    private func navigateRight() {
+        switch detailPaneMode {
+        case .preview:
+            guard let item = selectedItem else { return }
+            openQuickActions(for: item)
+        case .quickActions:
+            guard quickActionRoute == .home, let item = selectedItem else { return }
+            let options = quickActionOptions(for: item)
+            guard options.indices.contains(quickActionHomeSelection) else { return }
+            activateQuickAction(options[quickActionHomeSelection], for: item)
+        case .imagePreview:
+            break
+        }
+    }
+
+    private func handleEscape() {
+        switch detailPaneMode {
+        case .imagePreview, .quickActions:
+            navigateLeft()
+        case .preview:
+            onDismiss()
+        }
+    }
+
+    private func closeDetailOverlay() {
+        setDetailPaneMode(.preview)
+        quickActionMessage = nil
+        quickActionError = nil
+    }
+
+    private func setDetailPaneMode(_ mode: DetailPaneMode) {
+        let wasImagePreview = detailPaneMode == .imagePreview
+        detailPaneMode = mode
+        let isImagePreview = mode == .imagePreview
+
+        guard wasImagePreview != isImagePreview else { return }
+        NotificationCenter.default.post(
+            name: .bufferImagePreviewPresentationChanged,
+            object: nil,
+            userInfo: ["isPresented": isImagePreview]
+        )
     }
 }
 
@@ -1519,6 +2066,8 @@ extension Array {
 struct GlobalKeyMonitor: NSViewRepresentable {
     let onUp: () -> Void
     let onDown: () -> Void
+    let onLeft: () -> Void
+    let onRight: () -> Void
     let onEnter: () -> Void
     let onEscape: () -> Void
     let onDelete: () -> Void
@@ -1528,7 +2077,7 @@ struct GlobalKeyMonitor: NSViewRepresentable {
         let view = NSView()
         DispatchQueue.main.async {
             // Add local monitor to window
-            guard let window = view.window else { return }
+            guard view.window != nil else { return }
             
             // We use a property on the window or controller to store the monitor
             // But for simplicity in SwiftUI, we'll use a weak ref approach here
@@ -1543,6 +2092,12 @@ struct GlobalKeyMonitor: NSViewRepresentable {
                 case 125: // Down
                     onDown()
                     return nil // Consume event
+                case 123: // Left
+                    onLeft()
+                    return nil
+                case 124: // Right
+                    onRight()
+                    return nil
                 case 36: // Enter
                     onEnter()
                     return nil

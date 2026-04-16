@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Buffer, please **do not** open a public GitHub issue.
+If you discover a security vulnerability in clippie, please **do not** open a public GitHub issue.
 
 Instead, report it privately by emailing the maintainer or using GitHub's private vulnerability reporting:
 
@@ -31,7 +31,7 @@ Instead, report it privately by emailing the maintainer or using GitHub's privat
 
 ## Scope
 
-Buffer is a local-only macOS clipboard manager. It does **not** transmit any data over the network. All clipboard data is stored in `~/Library/Application Support/Buffer/` on your device.
+clippie is a local-only macOS clipboard manager. It does **not** transmit any data over the network. All clipboard data is stored in `~/Library/Application Support/clippie/` on your device.
 
 Security concerns most relevant to this project:
 
