@@ -25,6 +25,8 @@
 		AAA00016 /* Snippet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00018 /* Snippet.swift */; };
 		AAA00017 /* SnippetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00019 /* SnippetStore.swift */; };
 		AAA00018 /* SnippetExpansionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00020 /* SnippetExpansionController.swift */; };
+		AAA00019 /* AppMenuBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00021 /* AppMenuBuilder.swift */; };
+		AAA00020 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBB00022 /* SettingsWindowController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +51,8 @@
 		BBB00018 /* Snippet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snippet.swift; sourceTree = "<group>"; };
 		BBB00019 /* SnippetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetStore.swift; sourceTree = "<group>"; };
 		BBB00020 /* SnippetExpansionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetExpansionController.swift; sourceTree = "<group>"; };
+		BBB00021 /* AppMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMenuBuilder.swift; sourceTree = "<group>"; };
+		BBB00022 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +79,7 @@
 			children = (
 				BBB00001 /* ClippieApp.swift */,
 				BBB00002 /* AppDelegate.swift */,
+				BBB00021 /* AppMenuBuilder.swift */,
 				DDD00002 /* Models */,
 				DDD00003 /* Services */,
 				DDD00004 /* Views */,
@@ -118,6 +123,7 @@
 				BBB00011 /* SearchField.swift */,
 				BBB00012 /* StatusBarController.swift */,
 				BBB00016 /* SettingsView.swift */,
+				BBB00022 /* SettingsWindowController.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -216,6 +222,8 @@
 				AAA00016 /* Snippet.swift in Sources */,
 				AAA00017 /* SnippetStore.swift in Sources */,
 				AAA00018 /* SnippetExpansionController.swift in Sources */,
+				AAA00019 /* AppMenuBuilder.swift in Sources */,
+				AAA00020 /* SettingsWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

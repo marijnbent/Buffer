@@ -1,19 +1,21 @@
 import Cocoa
-import SwiftUI
 import Carbon.HIToolbox
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var clipboardWatcher: ClipboardWatcher?
     private var historyWindowController: HistoryWindowController?
     private var hotkeyManager: HotkeyManager?
     private var snippetExpansionController: SnippetExpansionController?
+    private lazy var settingsWindowController = SettingsWindowController()
     
     let clipboardStore = ClipboardStore()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hide dock icon - we're menu bar only
         NSApp.setActivationPolicy(.accessory)
+        NSApp.mainMenu = AppMenuBuilder.build()
         
         let defaults = UserDefaults.standard
         if !defaults.bool(forKey: "hasLaunchedBefore") {
@@ -34,6 +36,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             watcher: clipboardWatcher!,
             onShowHistory: { [weak self] in
                 self?.showHistoryWindow()
+            },
+            onShowSettings: { [weak self] in
+                self?.showSettingsWindow()
             }
         )
         
@@ -50,7 +55,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyManager?.register()
         
         NotificationCenter.default.addObserver(forName: .bufferHotkeyChanged, object: nil, queue: .main) { [weak self] _ in
-            self?.hotkeyManager?.reregister()
+            Task { @MainActor in
+                self?.hotkeyManager?.reregister()
+            }
         }
     }
     
@@ -61,7 +68,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        statusBarController?.showSettingsWindow()
+        showSettingsWindow()
         return true
     }
     
@@ -78,5 +85,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func showHistoryWindow() {
         historyWindowController?.showWindow(nil)
+    }
+
+    private func showSettingsWindow() {
+        settingsWindowController.showWindowAndActivate()
     }
 }

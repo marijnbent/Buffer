@@ -1,5 +1,4 @@
 import Cocoa
-import SwiftUI
 
 /// Manages the menu bar status item - click to toggle window
 class StatusBarController {
@@ -7,12 +6,18 @@ class StatusBarController {
     private let store: ClipboardStore
     private let watcher: ClipboardWatcher
     private let onToggleHistory: () -> Void
-    private var settingsWindowController: NSWindowController?
+    private let onShowSettings: () -> Void
     
-    init(store: ClipboardStore, watcher: ClipboardWatcher, onShowHistory: @escaping () -> Void) {
+    init(
+        store: ClipboardStore,
+        watcher: ClipboardWatcher,
+        onShowHistory: @escaping () -> Void,
+        onShowSettings: @escaping () -> Void
+    ) {
         self.store = store
         self.watcher = watcher
         self.onToggleHistory = onShowHistory
+        self.onShowSettings = onShowSettings
         
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
@@ -96,25 +101,8 @@ class StatusBarController {
         statusItem.menu = nil  // Reset so left click works
     }
     
-    func showSettingsWindow() {
-        if let controller = settingsWindowController, let window = controller.window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-        let hostingController = NSHostingController(rootView: SettingsView())
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Settings"
-        window.styleMask = [.titled, .closable]
-        window.center()
-        let controller = NSWindowController(window: window)
-        settingsWindowController = controller
-        controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
     @objc private func showSettings() {
-        showSettingsWindow()
+        onShowSettings()
     }
     
     @objc private func togglePause() {
