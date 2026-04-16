@@ -24,6 +24,8 @@
   <string>Apple Development: marijnbent@gmail.com (S4ZHLE3A52)</string>
   <key>XcodeProject</key>
   <string>clippie.xcodeproj</string>
+  <key>XcodeCodeSignIdentity</key>
+  <string>Apple Development</string>
   <key>XcodeScheme</key>
   <string>clippie</string>
 </dict>
