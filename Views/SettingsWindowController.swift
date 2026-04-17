@@ -34,14 +34,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let rootView = ClippieSettingsRootView(mainViewModel: mainViewModel)
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 660),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Clippie"
         window.contentViewController = hostingController
-        window.center()
+        Self.positionWindow(window)
         window.isReleasedWhenClosed = false
         window.delegate = nil
 
@@ -67,10 +67,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func showWindowAndActivate() {
         updateActivationPolicy(forSettingsWindowIsOpen: true)
-        let shouldCenterWindow = window?.isVisible != true
+        let shouldPositionWindow = window?.isVisible != true
         showWindow(nil)
-        if shouldCenterWindow {
-            window?.center()
+        if shouldPositionWindow, let window {
+            Self.positionWindow(window)
         }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -87,6 +87,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
 
         NSApp.setActivationPolicy(policy)
+    }
+
+    private static func positionWindow(_ window: NSWindow) {
+        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let originX = visibleFrame.midX - (window.frame.width / 2)
+        let originY = visibleFrame.maxY - window.frame.height - 80
+        window.setFrameOrigin(NSPoint(x: originX.rounded(), y: max(visibleFrame.minY, originY.rounded())))
     }
 
     @objc private func toolbarItemClicked(_ sender: NSToolbarItem) {
@@ -146,7 +154,7 @@ private struct ClippieSettingsRootView: View {
                 ClippieAboutSettingsView()
             }
         }
-        .frame(minWidth: 520, minHeight: 700)
+        .frame(minWidth: 460, minHeight: 640)
     }
 }
 

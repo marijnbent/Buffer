@@ -32,11 +32,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Initialize status bar
         statusBarController = StatusBarController(
-            store: clipboardStore,
-            watcher: clipboardWatcher!,
-            onShowHistory: { [weak self] in
-                self?.showHistoryWindow()
-            },
             onShowSettings: { [weak self] in
                 self?.showSettingsWindow()
             }

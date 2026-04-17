@@ -17,6 +17,16 @@ final class SnippetExpansionController {
     private var selectedIndex = 0
     private var activationObserver: NSObjectProtocol?
     private var sessionAnchorRect: CGRect?
+    private var sessionAnchorStrategy: AnchorStrategy?
+    private var axObserver: AXObserver?
+    private var axObserverSource: CFRunLoopSource?
+    private var observedApplication: NSRunningApplication?
+    private var observedApplicationElement: AXUIElement?
+    private var observedFocusedWindow: AXUIElement?
+    private var observedFocusedElement: AXUIElement?
+    private var lastAnchorLogKey: String?
+    private var lastObserverLogKey: String?
+    private var lastActivationLogKey: String?
     
     init(store: SnippetStore) {
         self.store = store
@@ -144,12 +154,16 @@ final class SnippetExpansionController {
     private func processTextKey(_ event: NSEvent) {
         let disallowedModifiers = event.modifierFlags.intersection([.command, .control, .option])
         let characters = event.characters ?? ""
+
+        guard !isTypingInsideClippie else {
+            if isSessionActive {
+                cancelSession()
+            }
+            return
+        }
         
         if characters == ":" && disallowedModifiers.isEmpty {
-            activeQuery = ""
-            matches = []
-            selectedIndex = 0
-            sessionAnchorRect = nil
+            startSession()
             refreshSuggestionsAsync()
             return
         }
@@ -183,6 +197,8 @@ final class SnippetExpansionController {
             suggestionWindowController.hide()
             return
         }
+
+        ensureObservationTargetCurrent()
         
         if let exactMatch = exactMatch(for: activeQuery) {
             expand(exactMatch)
@@ -208,7 +224,10 @@ final class SnippetExpansionController {
         matches = []
         selectedIndex = 0
         sessionAnchorRect = nil
+        sessionAnchorStrategy = nil
+        lastAnchorLogKey = nil
         suggestionWindowController.hide()
+        stopObservingActiveTarget()
     }
     
     private var isSessionActive: Bool {
@@ -218,6 +237,16 @@ final class SnippetExpansionController {
     private var selectedSnippet: Snippet? {
         guard matches.indices.contains(selectedIndex) else { return nil }
         return matches[selectedIndex]
+    }
+
+    private func startSession() {
+        activeQuery = ""
+        matches = []
+        selectedIndex = 0
+        sessionAnchorRect = nil
+        sessionAnchorStrategy = nil
+        lastAnchorLogKey = nil
+        ensureObservationTargetCurrent(force: true)
     }
     
     private func expand(_ snippet: Snippet) {
@@ -257,56 +286,31 @@ final class SnippetExpansionController {
         keyUp?.post(tap: .cgAnnotatedSessionEventTap)
     }
     
-    private func caretRect() -> CGRect? {
-        let systemWideElement = AXUIElementCreateSystemWide()
-        var focusedElementRef: CFTypeRef?
-        
-        guard AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElementRef) == .success,
-              let focusedElementRef,
-              CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() else {
-            return nil
-        }
-        
-        let focusedElement = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
-        var selectedRangeRef: CFTypeRef?
-        
-        guard AXUIElementCopyAttributeValue(focusedElement, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success,
-              let selectedRangeRef,
-              CFGetTypeID(selectedRangeRef) == AXValueGetTypeID() else {
-            return nil
-        }
-        
-        let rangeValue = selectedRangeRef as! AXValue
-        var selectedRange = CFRange()
-        guard AXValueGetValue(rangeValue, .cfRange, &selectedRange) else {
+    private func caretRect(for focusedElement: AXUIElement) -> CGRect? {
+        guard let selectedRange = selectedTextRange(for: focusedElement),
+              let bounds = boundsForRange(selectedRange, in: focusedElement) else {
             return nil
         }
 
-        var insertionRange = selectedRange
-        insertionRange.length = 0
-        guard let insertionRangeValue = AXValueCreate(.cfRange, &insertionRange) else {
-            return nil
-        }
-        
-        var boundsRef: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            focusedElement,
-            kAXBoundsForRangeParameterizedAttribute as CFString,
-            insertionRangeValue,
-            &boundsRef
-        ) == .success,
-        let boundsRef,
-        CFGetTypeID(boundsRef) == AXValueGetTypeID() else {
-            return nil
-        }
-        
-        let boundsValue = boundsRef as! AXValue
-        var bounds = CGRect.zero
-        guard AXValueGetValue(boundsValue, .cgRect, &bounds) else {
+        let elementFrame = accessibilityFrame(for: focusedElement)
+        return resolvedCaretRect(fromAccessibilityBounds: bounds, constrainedTo: elementFrame)
+    }
+
+    private func focusedElementRect(for focusedElement: AXUIElement) -> CGRect? {
+        guard let bounds = accessibilityFrame(for: focusedElement) else {
             return nil
         }
 
-        return resolvedCaretRect(fromAccessibilityBounds: bounds)
+        return resolvedElementRect(fromAccessibilityBounds: bounds)
+    }
+
+    private func focusedWindowRect() -> CGRect? {
+        guard let focusedWindow = currentFocusedWindow(),
+              let bounds = accessibilityFrame(for: focusedWindow) else {
+            return nil
+        }
+
+        return resolvedElementRect(fromAccessibilityBounds: bounds)
     }
     
     private func fallbackAnchorRect() -> CGRect {
@@ -315,30 +319,222 @@ final class SnippetExpansionController {
     }
 
     private func resolvedSessionAnchorRect() -> CGRect {
-        if let caretRect = caretRect() {
-            sessionAnchorRect = caretRect
-            return caretRect
+        let resolution = resolveSessionAnchor()
+
+        if resolution.strategy.shouldCache {
+            sessionAnchorRect = resolution.rect
+            sessionAnchorStrategy = resolution.strategy
         }
 
-        if let sessionAnchorRect {
-            return sessionAnchorRect
+        logAnchorResolutionIfNeeded(resolution)
+        return resolution.rect
+    }
+
+    private func resolveSessionAnchor() -> AnchorResolution {
+        let frontmostApplication = NSWorkspace.shared.frontmostApplication
+        let bundleIdentifier = frontmostApplication?.bundleIdentifier
+        let processID = frontmostApplication?.processIdentifier
+        let focusedElement = currentFocusedElement()
+        let focusedRole = focusedElement.flatMap { stringAttribute(kAXRoleAttribute as CFString, for: $0) }
+        let focusedSubrole = focusedElement.flatMap { stringAttribute(kAXSubroleAttribute as CFString, for: $0) }
+
+        if let focusedElement,
+           let caretRect = caretRect(for: focusedElement) {
+            return AnchorResolution(
+                rect: caretRect,
+                strategy: .caretBounds,
+                bundleIdentifier: bundleIdentifier,
+                processID: processID,
+                focusedRole: focusedRole,
+                focusedSubrole: focusedSubrole
+            )
         }
 
-        let anchorRect = fallbackAnchorRect()
-        sessionAnchorRect = anchorRect
-        return anchorRect
+        if let focusedElement,
+           let focusedElementRect = focusedElementRect(for: focusedElement) {
+            return AnchorResolution(
+                rect: focusedElementRect,
+                strategy: .focusedElement,
+                bundleIdentifier: bundleIdentifier,
+                processID: processID,
+                focusedRole: focusedRole,
+                focusedSubrole: focusedSubrole
+            )
+        }
+
+        let focusedWindowRect = focusedWindowRect()
+        if let sessionAnchorRect,
+           let focusedWindowRect,
+           focusedWindowRect.insetBy(dx: -24, dy: -24).intersects(sessionAnchorRect) {
+            return AnchorResolution(
+                rect: sessionAnchorRect,
+                strategy: .sessionCache,
+                bundleIdentifier: bundleIdentifier,
+                processID: processID,
+                focusedRole: focusedRole,
+                focusedSubrole: focusedSubrole
+            )
+        }
+
+        if let focusedWindowRect,
+           let focusedWindowAnchorRect = focusedWindowAnchorRect(from: focusedWindowRect) {
+            return AnchorResolution(
+                rect: focusedWindowAnchorRect,
+                strategy: .focusedWindow,
+                bundleIdentifier: bundleIdentifier,
+                processID: processID,
+                focusedRole: focusedRole,
+                focusedSubrole: focusedSubrole
+            )
+        }
+
+        return AnchorResolution(
+            rect: fallbackAnchorRect(),
+            strategy: .mouse,
+            bundleIdentifier: bundleIdentifier,
+            processID: processID,
+            focusedRole: focusedRole,
+            focusedSubrole: focusedSubrole
+        )
     }
 
     private func exactMatch(for query: String) -> Snippet? {
         store.exactTriggerMatch(for: query)
     }
 
-    private func resolvedCaretRect(fromAccessibilityBounds bounds: CGRect) -> CGRect? {
+    private var isTypingInsideClippie: Bool {
+        guard let frontmostApplication = NSWorkspace.shared.frontmostApplication else {
+            return false
+        }
+
+        return frontmostApplication.bundleIdentifier == Bundle.main.bundleIdentifier
+    }
+
+    private func focusedElement() -> AXUIElement? {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focusedElementRef: CFTypeRef?
+
+        guard AXUIElementCopyAttributeValue(systemWideElement, kAXFocusedUIElementAttribute as CFString, &focusedElementRef) == .success,
+              let focusedElementRef,
+              CFGetTypeID(focusedElementRef) == AXUIElementGetTypeID() else {
+            return nil
+        }
+
+        return unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+    }
+
+    private func currentFocusedElement() -> AXUIElement? {
+        observedFocusedElement ?? focusedElement()
+    }
+
+    private func currentFocusedWindow() -> AXUIElement? {
+        if let observedFocusedWindow {
+            return observedFocusedWindow
+        }
+
+        guard let observedApplicationElement else {
+            return nil
+        }
+
+        return focusedWindow(in: observedApplicationElement)
+    }
+
+    private func selectedTextRange(for element: AXUIElement) -> CFRange? {
+        var selectedRangeRef: CFTypeRef?
+
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRangeRef) == .success,
+              let selectedRangeRef,
+              CFGetTypeID(selectedRangeRef) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        let rangeValue = selectedRangeRef as! AXValue
+        var selectedRange = CFRange()
+        guard AXValueGetValue(rangeValue, .cfRange, &selectedRange) else {
+            return nil
+        }
+
+        return selectedRange
+    }
+
+    private func boundsForRange(_ range: CFRange, in element: AXUIElement) -> CGRect? {
+        var insertionRange = range
+        insertionRange.length = 0
+        guard let insertionRangeValue = AXValueCreate(.cfRange, &insertionRange) else {
+            return nil
+        }
+
+        var boundsRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            insertionRangeValue,
+            &boundsRef
+        ) == .success,
+        let boundsRef,
+        CFGetTypeID(boundsRef) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        let boundsValue = boundsRef as! AXValue
+        var bounds = CGRect.zero
+        guard AXValueGetValue(boundsValue, .cgRect, &bounds) else {
+            return nil
+        }
+
+        return bounds
+    }
+
+    private func accessibilityFrame(for element: AXUIElement) -> CGRect? {
+        var positionRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let positionRef,
+              let sizeRef,
+              CFGetTypeID(positionRef) == AXValueGetTypeID(),
+              CFGetTypeID(sizeRef) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        let positionValue = positionRef as! AXValue
+        let sizeValue = sizeRef as! AXValue
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue, .cgSize, &size) else {
+            return nil
+        }
+
+        return CGRect(origin: position, size: size)
+    }
+
+    private func focusedWindow(in applicationElement: AXUIElement) -> AXUIElement? {
+        axElementAttribute(kAXFocusedWindowAttribute as CFString, for: applicationElement)
+            ?? axElementAttribute(kAXMainWindowAttribute as CFString, for: applicationElement)
+    }
+
+    private func focusedWindowAnchorRect(from windowRect: CGRect) -> CGRect? {
+        guard windowRect.width > 0, windowRect.height > 0 else {
+            return nil
+        }
+
+        let anchorX = min(windowRect.maxX - 24, windowRect.minX + 28)
+        let anchorY = max(windowRect.minY + 24, windowRect.maxY - 56)
+        return CGRect(x: anchorX, y: anchorY, width: 1, height: 1)
+    }
+
+    private func resolvedCaretRect(fromAccessibilityBounds bounds: CGRect, constrainedTo accessibilityElementBounds: CGRect?) -> CGRect? {
         guard isFinite(bounds) else {
             return nil
         }
 
         guard var convertedBounds = appKitRect(fromAccessibilityRect: bounds) else {
+            return nil
+        }
+
+        if bounds.origin == .zero && bounds.size == .zero {
             return nil
         }
 
@@ -358,6 +554,41 @@ final class SnippetExpansionController {
             return nil
         }
 
+        if let accessibilityElementBounds,
+           let convertedElementBounds = resolvedElementRect(fromAccessibilityBounds: accessibilityElementBounds) {
+            let expandedElementBounds = convertedElementBounds.insetBy(dx: -24, dy: -24)
+            guard expandedElementBounds.intersects(convertedBounds) else {
+                return nil
+            }
+        }
+
+        return convertedBounds.integral
+    }
+
+    private func resolvedElementRect(fromAccessibilityBounds bounds: CGRect) -> CGRect? {
+        guard isFinite(bounds),
+              bounds.width > 0,
+              bounds.height > 0,
+              var convertedBounds = appKitRect(fromAccessibilityRect: bounds) else {
+            return nil
+        }
+
+        let desktopFrame = NSScreen.screens.reduce(into: CGRect.null) { partialResult, screen in
+            partialResult = partialResult.union(screen.frame)
+        }
+        let sanityFrame = desktopFrame.insetBy(dx: -320, dy: -320)
+        guard sanityFrame.intersects(convertedBounds) else {
+            return nil
+        }
+
+        if convertedBounds.width < 24 {
+            convertedBounds.size.width = 24
+        }
+
+        if convertedBounds.height < 24 {
+            convertedBounds.size.height = 24
+        }
+
         return convertedBounds.integral
     }
 
@@ -369,28 +600,391 @@ final class SnippetExpansionController {
     }
 
     private func appKitRect(fromAccessibilityRect accessibilityRect: CGRect) -> CGRect? {
-        guard let menuBarScreen = menuBarScreen else {
+        let desktopFrame = NSScreen.screens.reduce(into: CGRect.null) { partialResult, screen in
+            partialResult = partialResult.union(screen.frame)
+        }
+        guard !desktopFrame.isNull else {
             return nil
         }
 
         var convertedRect = accessibilityRect
-        convertedRect.origin.y = menuBarScreen.frame.maxY - accessibilityRect.maxY
+        convertedRect.origin.y = desktopFrame.maxY - accessibilityRect.maxY
         return convertedRect
     }
 
-    private var menuBarScreen: NSScreen? {
-        let mainDisplayID = CGMainDisplayID()
-        return NSScreen.screens.first(where: { screen in
-            guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-                return false
+    private func ensureObservationTargetCurrent(force: Bool = false) {
+        guard let frontmostApplication = NSWorkspace.shared.frontmostApplication else {
+            stopObservingActiveTarget()
+            return
+        }
+
+        if !force, observedApplication?.processIdentifier == frontmostApplication.processIdentifier {
+            refreshObservedElements()
+            return
+        }
+
+        stopObservingActiveTarget()
+        observedApplication = frontmostApplication
+        observedApplicationElement = AXUIElementCreateApplication(frontmostApplication.processIdentifier)
+        activateAccessibilityIfNeeded(for: frontmostApplication)
+        refreshObservedElements()
+
+        guard let observedApplicationElement else {
+            logObserver("Skipped AX observer setup because the app element was unavailable.")
+            return
+        }
+
+        var observer: AXObserver?
+        let observerError = AXObserverCreate(
+            frontmostApplication.processIdentifier,
+            { _, element, notification, refcon in
+                guard let refcon else { return }
+                let controller = Unmanaged<SnippetExpansionController>.fromOpaque(refcon).takeUnretainedValue()
+                controller.handleAXNotification(notification as String, element: element)
+            },
+            &observer
+        )
+
+        guard observerError == .success, let observer else {
+            logObserver("Failed to create AX observer for \(frontmostApplication.localizedName ?? "unknown") with error=\(describe(observerError))")
+            return
+        }
+
+        axObserver = observer
+        axObserverSource = AXObserverGetRunLoopSource(observer)
+
+        if let axObserverSource {
+            CFRunLoopAddSource(CFRunLoopGetMain(), axObserverSource, .commonModes)
+        }
+
+        registerAppNotifications(observer, for: observedApplicationElement)
+        registerFocusedWindowNotifications()
+        registerFocusedElementNotifications()
+
+        logObserver("Observing \(frontmostApplication.localizedName ?? "unknown") bundle=\(frontmostApplication.bundleIdentifier ?? "unknown") pid=\(frontmostApplication.processIdentifier)")
+    }
+
+    private func stopObservingActiveTarget() {
+        unregisterFocusedElementNotifications()
+        unregisterFocusedWindowNotifications()
+
+        if let axObserverSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), axObserverSource, .commonModes)
+            self.axObserverSource = nil
+        }
+
+        axObserver = nil
+        observedApplication = nil
+        observedApplicationElement = nil
+        observedFocusedWindow = nil
+        observedFocusedElement = nil
+        lastObserverLogKey = nil
+        lastActivationLogKey = nil
+    }
+
+    private func refreshObservedElements() {
+        if let observedApplicationElement {
+            observedFocusedWindow = focusedWindow(in: observedApplicationElement)
+        } else {
+            observedFocusedWindow = nil
+        }
+
+        observedFocusedElement = focusedElement()
+    }
+
+    private func handleAXNotification(_ notification: String, element: AXUIElement) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard isSessionActive else { return }
+
+            sessionAnchorRect = nil
+
+            switch notification {
+            case kAXFocusedUIElementChangedNotification:
+                unregisterFocusedElementNotifications()
+                refreshObservedElements()
+                registerFocusedElementNotifications()
+            case kAXFocusedWindowChangedNotification, kAXMainWindowChangedNotification:
+                unregisterFocusedWindowNotifications()
+                unregisterFocusedElementNotifications()
+                refreshObservedElements()
+                registerFocusedWindowNotifications()
+                registerFocusedElementNotifications()
+            case kAXMovedNotification, kAXResizedNotification, kAXValueChangedNotification, kAXSelectedTextChangedNotification:
+                refreshObservedElements()
+            default:
+                refreshObservedElements()
             }
-            return CGDirectDisplayID(screenNumber.uint32Value) == mainDisplayID
-        }) ?? NSScreen.screens.first
+
+            let notificationDescription = notification
+            let role = stringAttribute(kAXRoleAttribute as CFString, for: element) ?? "unknown"
+            logObserver("Received \(notificationDescription) role=\(role)")
+            refreshSuggestionsAsync()
+        }
+    }
+
+    private func registerAppNotifications(_ observer: AXObserver, for applicationElement: AXUIElement) {
+        for notification in [
+            kAXFocusedUIElementChangedNotification,
+            kAXFocusedWindowChangedNotification,
+            kAXMainWindowChangedNotification,
+            kAXValueChangedNotification,
+            kAXSelectedTextChangedNotification
+        ] {
+            addNotification(notification, to: applicationElement, observer: observer)
+        }
+    }
+
+    private func registerFocusedWindowNotifications() {
+        guard let axObserver, let observedFocusedWindow else { return }
+        for notification in [kAXMovedNotification, kAXResizedNotification] {
+            addNotification(notification, to: observedFocusedWindow, observer: axObserver)
+        }
+    }
+
+    private func unregisterFocusedWindowNotifications() {
+        guard let axObserver, let observedFocusedWindow else { return }
+        for notification in [kAXMovedNotification, kAXResizedNotification] {
+            _ = AXObserverRemoveNotification(axObserver, observedFocusedWindow, notification as CFString)
+        }
+    }
+
+    private func registerFocusedElementNotifications() {
+        guard let axObserver, let observedFocusedElement else { return }
+        for notification in [kAXValueChangedNotification, kAXSelectedTextChangedNotification] {
+            addNotification(notification, to: observedFocusedElement, observer: axObserver)
+        }
+    }
+
+    private func unregisterFocusedElementNotifications() {
+        guard let axObserver, let observedFocusedElement else { return }
+        for notification in [kAXValueChangedNotification, kAXSelectedTextChangedNotification] {
+            _ = AXObserverRemoveNotification(axObserver, observedFocusedElement, notification as CFString)
+        }
+    }
+
+    private func addNotification(_ notification: String, to element: AXUIElement, observer: AXObserver) {
+        let error = AXObserverAddNotification(
+            observer,
+            element,
+            notification as CFString,
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        )
+
+        switch error {
+        case .success, .notificationAlreadyRegistered:
+            return
+        case .notificationUnsupported:
+            logObserver("Notification \(notification) unsupported for current AX element.")
+        default:
+            logObserver("Failed to register notification \(notification) error=\(describe(error))")
+        }
+    }
+
+    private func activateAccessibilityIfNeeded(for application: NSRunningApplication) {
+        guard let observedApplicationElement else {
+            return
+        }
+
+        guard let mode = accessibilityActivationMode(for: application.bundleIdentifier) else {
+            return
+        }
+
+        let logKey = "\(application.processIdentifier)-\(mode.rawValue)"
+        guard lastActivationLogKey != logKey else {
+            return
+        }
+        lastActivationLogKey = logKey
+
+        switch mode {
+        case .chromiumEnhancedUI:
+            guard let targetWindow = focusedWindow(in: observedApplicationElement) else {
+                logObserver("Skipped Chromium accessibility activation because no focused window was available.")
+                return
+            }
+
+            let error = AXUIElementSetAttributeValue(
+                targetWindow,
+                "AXEnhancedUserInterface" as CFString,
+                kCFBooleanTrue
+            )
+            logObserver("Activated Chromium accessibility bundle=\(application.bundleIdentifier ?? "unknown") result=\(describe(error))")
+        case .electronManualAccessibility:
+            let error = AXUIElementSetAttributeValue(
+                observedApplicationElement,
+                "AXManualAccessibility" as CFString,
+                kCFBooleanTrue
+            )
+            logObserver("Activated Electron accessibility bundle=\(application.bundleIdentifier ?? "unknown") result=\(describe(error))")
+        }
+    }
+
+    private func accessibilityActivationMode(for bundleIdentifier: String?) -> AccessibilityActivationMode? {
+        guard let bundleIdentifier else {
+            return nil
+        }
+
+        let chromiumBundles: Set<String> = [
+            "com.google.Chrome",
+            "com.google.Chrome.canary",
+            "com.brave.Browser",
+            "com.microsoft.edgemac",
+            "org.chromium.Chromium",
+            "company.thebrowser.Browser",
+            "com.vivaldi.Vivaldi"
+        ]
+        if chromiumBundles.contains(bundleIdentifier) {
+            return .chromiumEnhancedUI
+        }
+
+        let electronBundles: Set<String> = [
+            "com.tinyspeck.slackmacgap",
+            "com.hnc.Discord",
+            "com.microsoft.VSCode",
+            "notion.id",
+            "com.figma.Desktop"
+        ]
+        if electronBundles.contains(bundleIdentifier) {
+            return .electronManualAccessibility
+        }
+
+        return nil
+    }
+
+    private func axElementAttribute(_ attribute: CFString, for element: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let value,
+              CFGetTypeID(value) == AXUIElementGetTypeID() else {
+            return nil
+        }
+
+        return unsafeBitCast(value, to: AXUIElement.self)
+    }
+
+    private func stringAttribute(_ attribute: CFString, for element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let value else {
+            return nil
+        }
+
+        return value as? String
+    }
+
+    private func logAnchorResolutionIfNeeded(_ resolution: AnchorResolution) {
+        let logKey = [
+            resolution.strategy.rawValue,
+            resolution.bundleIdentifier ?? "unknown",
+            resolution.focusedRole ?? "unknown",
+            resolution.focusedSubrole ?? "none"
+        ].joined(separator: "|")
+
+        guard lastAnchorLogKey != logKey else {
+            return
+        }
+        lastAnchorLogKey = logKey
+
+        let strategySuffix = sessionAnchorStrategy.map { " previous=\($0.rawValue)" } ?? ""
+        print(
+            "[clippie snippet] anchor strategy=\(resolution.strategy.rawValue)\(strategySuffix) " +
+            "bundle=\(resolution.bundleIdentifier ?? "unknown") pid=\(resolution.processID ?? 0) " +
+            "role=\(resolution.focusedRole ?? "unknown") subrole=\(resolution.focusedSubrole ?? "none") " +
+            "rect=\(NSStringFromRect(resolution.rect))"
+        )
+    }
+
+    private func logObserver(_ message: String) {
+        guard let observedApplication else {
+            print("[clippie snippet] \(message)")
+            return
+        }
+
+        let logKey = "\(observedApplication.processIdentifier)|\(message)"
+        guard lastObserverLogKey != logKey else {
+            return
+        }
+        lastObserverLogKey = logKey
+
+        print(
+            "[clippie snippet] \(message) " +
+            "bundle=\(observedApplication.bundleIdentifier ?? "unknown") pid=\(observedApplication.processIdentifier)"
+        )
+    }
+
+    private func describe(_ error: AXError) -> String {
+        switch error {
+        case .success:
+            return "success"
+        case .failure:
+            return "failure"
+        case .illegalArgument:
+            return "illegalArgument"
+        case .invalidUIElement:
+            return "invalidUIElement"
+        case .invalidUIElementObserver:
+            return "invalidUIElementObserver"
+        case .cannotComplete:
+            return "cannotComplete"
+        case .attributeUnsupported:
+            return "attributeUnsupported"
+        case .actionUnsupported:
+            return "actionUnsupported"
+        case .notificationUnsupported:
+            return "notificationUnsupported"
+        case .notImplemented:
+            return "notImplemented"
+        case .notificationAlreadyRegistered:
+            return "notificationAlreadyRegistered"
+        case .notificationNotRegistered:
+            return "notificationNotRegistered"
+        case .apiDisabled:
+            return "apiDisabled"
+        case .noValue:
+            return "noValue"
+        case .parameterizedAttributeUnsupported:
+            return "parameterizedAttributeUnsupported"
+        case .notEnoughPrecision:
+            return "notEnoughPrecision"
+        default:
+            return "unknown(\(error.rawValue))"
+        }
     }
 
     private func playInsertionSound() {
         NSSound(named: NSSound.Name("Pop"))?.play()
     }
+}
+
+private enum AnchorStrategy: String {
+    case caretBounds
+    case focusedElement
+    case sessionCache
+    case focusedWindow
+    case mouse
+
+    var shouldCache: Bool {
+        switch self {
+        case .caretBounds, .focusedElement, .focusedWindow:
+            return true
+        case .sessionCache, .mouse:
+            return false
+        }
+    }
+}
+
+private struct AnchorResolution {
+    let rect: CGRect
+    let strategy: AnchorStrategy
+    let bundleIdentifier: String?
+    let processID: pid_t?
+    let focusedRole: String?
+    let focusedSubrole: String?
+}
+
+private enum AccessibilityActivationMode: String {
+    case chromiumEnhancedUI
+    case electronManualAccessibility
 }
 
 @MainActor
@@ -475,22 +1069,18 @@ private struct SnippetSuggestionListView: View {
             ForEach(Array(snippets.enumerated()), id: \.element.id) { index, snippet in
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(snippet.displayTitle)
-                            .font(.system(size: 12, weight: .semibold))
+                        Text(snippet.content)
+                            .font(.system(size: 12))
                             .foregroundColor(.primary)
                             .lineLimit(1)
-                        
-                        Text(snippet.content)
-                            .font(.system(size: 11))
+
+                        Text(":\(snippet.trigger)")
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
                     
                     Spacer(minLength: 8)
-                    
-                    Text(":\(snippet.trigger)")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.secondary)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)

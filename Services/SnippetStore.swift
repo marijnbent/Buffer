@@ -78,7 +78,6 @@ final class SnippetStore: ObservableObject {
                 guard !normalizedQuery.isEmpty else { return true }
 
                 return snippet.trigger.contains(normalizedQuery) ||
-                    snippet.title.localizedCaseInsensitiveContains(trimmedQuery) ||
                     snippet.content.localizedCaseInsensitiveContains(trimmedQuery)
             }
             .sorted { lhs, rhs in
@@ -103,7 +102,7 @@ final class SnippetStore: ObservableObject {
                     return lhs.trigger.count < rhs.trigger.count
                 }
                 
-                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+                return lhs.trigger.localizedCaseInsensitiveCompare(rhs.trigger) == .orderedAscending
             }
     }
 
@@ -143,7 +142,7 @@ final class SnippetStore: ObservableObject {
                     return lhs.trigger.count < rhs.trigger.count
                 }
 
-                return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+                return lhs.trigger.localizedCaseInsensitiveCompare(rhs.trigger) == .orderedAscending
             }
 
         guard let limit else { return rankedMatches }
@@ -184,10 +183,10 @@ final class SnippetStore: ObservableObject {
     
     private func sortSnippets() {
         snippets.sort { lhs, rhs in
-            if lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedSame {
+            if lhs.trigger.localizedCaseInsensitiveCompare(rhs.trigger) == .orderedSame {
                 return lhs.trigger < rhs.trigger
             }
-            return lhs.displayTitle.localizedCaseInsensitiveCompare(rhs.displayTitle) == .orderedAscending
+            return lhs.trigger.localizedCaseInsensitiveCompare(rhs.trigger) == .orderedAscending
         }
     }
 
@@ -206,12 +205,8 @@ final class SnippetStore: ObservableObject {
             return 2
         }
 
-        if snippet.title.localizedCaseInsensitiveContains(rawQuery) {
-            return 1
-        }
-
         if snippet.content.localizedCaseInsensitiveContains(rawQuery) {
-            return 0
+            return 1
         }
 
         return -1

@@ -1,5 +1,6 @@
 import SwiftUI
 import ApplicationServices
+import UniformTypeIdentifiers
 
 /// Settings view for configuring clippie preferences
 struct SettingsView: View {
@@ -191,12 +192,7 @@ struct SettingsView: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(snippet.displayTitle)
-                        .lineLimit(1)
-
                     Text(":\(snippet.trigger)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     Text(snippetSummary(snippet))
@@ -222,7 +218,7 @@ struct SettingsView: View {
         do {
             try snippetStore.saveSnippet(
                 id: draft.snippetID,
-                title: draft.title,
+                title: "",
                 trigger: draft.trigger,
                 content: draft.content
             )
@@ -381,20 +377,17 @@ final class AccessibilityPermissionViewModel: ObservableObject {
 private struct SnippetDraft: Identifiable {
     let id = UUID()
     var snippetID: UUID?
-    var title: String
     var trigger: String
     var content: String
     
-    init(snippetID: UUID? = nil, title: String = "", trigger: String = "", content: String = "") {
+    init(snippetID: UUID? = nil, trigger: String = "", content: String = "") {
         self.snippetID = snippetID
-        self.title = title
         self.trigger = trigger
         self.content = content
     }
     
     init(snippet: Snippet? = nil) {
         self.snippetID = snippet?.id
-        self.title = snippet?.title ?? ""
         self.trigger = snippet?.trigger ?? ""
         self.content = snippet?.content ?? ""
     }
@@ -405,16 +398,28 @@ private struct SnippetEditorSheet: View {
     let onSave: (SnippetDraft) -> Bool
     
     @Environment(\.dismiss) private var dismiss
-    @State private var title: String
+    @FocusState private var focusedField: SnippetEditorFocusedField?
     @State private var trigger: String
     @State private var content: String
     
     init(draft: SnippetDraft, onSave: @escaping (SnippetDraft) -> Bool) {
         self.draft = draft
         self.onSave = onSave
-        _title = State(initialValue: draft.title)
         _trigger = State(initialValue: draft.trigger)
         _content = State(initialValue: draft.content)
+    }
+
+    private func save() {
+        let didSave = onSave(
+            SnippetDraft(
+                snippetID: draft.snippetID,
+                trigger: trigger,
+                content: content
+            )
+        )
+        if didSave {
+            dismiss()
+        }
     }
     
     var body: some View {
@@ -423,18 +428,14 @@ private struct SnippetEditorSheet: View {
                 .font(.system(size: 15, weight: .semibold))
             
             VStack(alignment: .leading, spacing: 6) {
-                Text("Label (optional)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
-                TextField("Personal IBAN", text: $title)
-                    .textFieldStyle(.roundedBorder)
-            }
-            
-            VStack(alignment: .leading, spacing: 6) {
                 Text("Trigger")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.secondary)
                 TextField("iban", text: $trigger)
+                    .focused($focusedField, equals: .trigger)
+                    .onSubmit {
+                        save()
+                    }
                     .textFieldStyle(.roundedBorder)
             }
             
@@ -443,6 +444,7 @@ private struct SnippetEditorSheet: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.secondary)
                 TextEditor(text: $content)
+                    .focused($focusedField, equals: .content)
                     .font(.system(size: 12))
                     .frame(height: 120)
                     .overlay(
@@ -459,22 +461,38 @@ private struct SnippetEditorSheet: View {
                 }
                 
                 Button("Save") {
-                    let didSave = onSave(
-                        SnippetDraft(
-                            snippetID: draft.snippetID,
-                            title: title,
-                            trigger: trigger,
-                            content: content
-                        )
-                    )
-                    if didSave {
-                        dismiss()
-                    }
+                    save()
                 }
                 .buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
         .frame(width: 420)
+        .onAppear {
+            DispatchQueue.main.async {
+                focusedField = .trigger
+            }
+        }
+        .onPasteCommand(of: [UTType.plainText]) { providers in
+            guard let provider = providers.first else { return }
+            _ = provider.loadObject(ofClass: String.self) { string, _ in
+                guard let string else { return }
+                Task { @MainActor in
+                    switch focusedField {
+                    case .trigger:
+                        trigger += string
+                    case .content:
+                        content += string
+                    case nil:
+                        content += string
+                    }
+                }
+            }
+        }
     }
+}
+
+private enum SnippetEditorFocusedField: Hashable {
+    case trigger
+    case content
 }

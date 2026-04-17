@@ -356,7 +356,6 @@ private struct SnippetRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Pill-style trigger badge — makes the monospaced shorthand visually distinct
             Text(":\(snippet.trigger)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(.accentColor)
@@ -365,13 +364,6 @@ private struct SnippetRow: View {
                 .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
 
             VStack(alignment: .leading, spacing: 1) {
-                if !snippet.title.isEmpty {
-                    Text(snippet.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                }
-
                 Text(snippet.content)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
@@ -394,10 +386,8 @@ private struct SnippetRow: View {
 
 private struct QuickActionRow: View {
     let title: String
-    let subtitle: String
     let systemImage: String
     let isSelected: Bool
-    let isDestructive: Bool
     let action: () -> Void
     let onHoverSelection: () -> Void
 
@@ -405,7 +395,7 @@ private struct QuickActionRow: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return isDestructive ? Color.red.opacity(0.08) : Color.accentColor.opacity(0.15)
+            return Color.primary.opacity(0.08)
         } else if isHovered {
             return Color.primary.opacity(0.05)
         }
@@ -413,15 +403,7 @@ private struct QuickActionRow: View {
     }
 
     private var backgroundCornerRadius: CGFloat {
-        isSelected ? 0 : 4
-    }
-
-    private var iconTint: Color {
-        isDestructive ? .red : (isSelected ? .accentColor : .secondary)
-    }
-
-    private var titleTint: Color {
-        isDestructive ? .red : .primary
+        6
     }
 
     var body: some View {
@@ -429,20 +411,13 @@ private struct QuickActionRow: View {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.system(size: 13))
-                    .foregroundColor(iconTint)
+                    .foregroundColor(.secondary)
                     .frame(width: 18, height: 18)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.system(size: 14))
-                        .foregroundColor(titleTint)
-                        .lineLimit(1)
-
-                    Text(subtitle)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
 
@@ -453,7 +428,7 @@ private struct QuickActionRow: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 backgroundColor,
@@ -483,15 +458,16 @@ struct HistoryContentView: View {
     let onDismiss: () -> Void
     
     @FocusState private var isSearchFocused: Bool
+    @FocusState private var quickActionFocusedField: QuickActionFocusedField?
     @State private var searchText = ""
     @State private var selectedIndex = 0
     @State private var previewImage: NSImage?
     @State private var chunkedText = ChunkedTextState()
     @State private var scrollTrigger = false  // Triggers scroll on keyboard navigation
+    @State private var suppressHoverSelectionUntil = Date.distantPast
     @State private var itemSize: Int?         // Holds computed size of item
     @State private var detailPaneMode: DetailPaneMode = .preview
     @State private var quickActionRoute: QuickActionRoute = .home
-    @State private var snippetDraftTitle = ""
     @State private var snippetDraftTrigger = ""
     @State private var snippetDraftContent = ""
     @State private var quickActionHomeSelection = 0
@@ -689,11 +665,9 @@ struct HistoryContentView: View {
         }
         .background(GlobalKeyMonitor(
             onUp: {
-                scrollTrigger = true
                 navigateUp()
             },
             onDown: {
-                scrollTrigger = true
                 navigateDown()
             },
             onLeft: {
@@ -861,7 +835,7 @@ struct HistoryContentView: View {
                                     }
                                     .onHover { hovering in
                                         if hovering {
-                                            selectResult(at: index)
+                                            handleHoverSelection(at: index)
                                         }
                                     }
                                     .simultaneousGesture(
@@ -878,9 +852,7 @@ struct HistoryContentView: View {
                     .onChange(of: selectedIndex) { newValue in
                         if scrollTrigger {
                             if let result = filteredResults[safe: newValue] {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    proxy.scrollTo(result.id)
-                                }
+                                proxy.scrollTo(result.id)
                             }
                             scrollTrigger = false
                         }
@@ -1077,6 +1049,7 @@ struct HistoryContentView: View {
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     quickActionRoute = .home
+                    quickActionFocusedField = nil
                     quickActionError = nil
                     quickActionMessage = nil
                 }
@@ -1113,10 +1086,8 @@ struct HistoryContentView: View {
 
                     QuickActionRow(
                         title: quickActionTitle(for: option, item: item),
-                        subtitle: quickActionSubtitle(for: option, item: item),
                         systemImage: quickActionSystemImage(for: option),
                         isSelected: isSelected,
-                        isDestructive: isDestructive,
                         action: {
                             quickActionHomeSelection = index
                             activateQuickAction(option, for: item)
@@ -1159,8 +1130,12 @@ struct HistoryContentView: View {
                 .background(Color.orange.opacity(0.07),
                             in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             } else {
-                snippetFormField(label: "Label", placeholder: "Optional name", text: $snippetDraftTitle)
-                snippetFormField(label: "Trigger", placeholder: "shortcut", text: $snippetDraftTrigger)
+                snippetFormField(
+                    label: "Trigger",
+                    placeholder: "shortcut",
+                    text: $snippetDraftTrigger,
+                    focusedField: .snippetTrigger
+                )
 
                 VStack(alignment: .leading, spacing: 5) {
                     quickFormLabel("Text")
@@ -1244,10 +1219,16 @@ struct HistoryContentView: View {
             .tracking(0.3)
     }
 
-    private func snippetFormField(label: String, placeholder: String, text: Binding<String>) -> some View {
+    private func snippetFormField(
+        label: String,
+        placeholder: String,
+        text: Binding<String>,
+        focusedField: QuickActionFocusedField? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             quickFormLabel(label)
             TextField(placeholder, text: text)
+                .focused($quickActionFocusedField, equals: focusedField)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .padding(.horizontal, 8)
@@ -1373,23 +1354,6 @@ struct HistoryContentView: View {
         }
     }
 
-    private func quickActionSubtitle(for option: QuickActionHomeOption, item: ClipboardItem) -> String {
-        switch option {
-        case .showLargerImage:
-            return "Open a larger in-app preview for this image"
-        case .saveSnippet:
-            return canSaveItemAsSnippet(item) && selectedItemActionText == nil
-                ? "Needs text content first"
-                : "Create a new reusable snippet from this text"
-        case .runOCR:
-            return item.ocrText == nil
-                ? "Extract text so the image can be reused"
-                : "Extract the text again from this image"
-        case .deleteHistory:
-            return "Remove this clipboard item and its stored files"
-        }
-    }
-
     private func quickActionSystemImage(for option: QuickActionHomeOption) -> String {
         switch option {
         case .showLargerImage:
@@ -1422,7 +1386,7 @@ struct HistoryContentView: View {
         setDetailPaneMode(.preview)
         quickActionRoute = .home
         quickActionHomeSelection = 0
-        snippetDraftTitle = ""
+        quickActionFocusedField = nil
         snippetDraftTrigger = ""
         snippetDraftContent = ""
         quickActionMessage = nil
@@ -1431,15 +1395,6 @@ struct HistoryContentView: View {
 
     private func canSaveItemAsSnippet(_ item: ClipboardItem) -> Bool {
         item.type == .text
-    }
-
-    private func suggestedTrigger(from text: String) -> String {
-        let pieces = text
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-
-        return Array(pieces.prefix(3)).joined(separator: "-")
     }
 
     private func actionText(for item: ClipboardItem) -> String? {
@@ -1454,10 +1409,6 @@ struct HistoryContentView: View {
     }
 
     private func actionWarning(for item: ClipboardItem) -> String? {
-        if item.type == .image {
-            return "Snippet saving only works for text clips."
-        }
-
         if item.isTruncated {
             return "Only the stored preview is available for snippet actions."
         }
@@ -1489,8 +1440,8 @@ struct HistoryContentView: View {
 
     private func prepareSnippetDraft(for item: ClipboardItem) {
         let sourceText = actionText(for: item) ?? ""
-        snippetDraftTitle = item.sourceApp ?? ""
-        snippetDraftTrigger = suggestedTrigger(from: sourceText)
+        quickActionFocusedField = nil
+        snippetDraftTrigger = ""
         snippetDraftContent = sourceText
     }
 
@@ -1503,9 +1454,14 @@ struct HistoryContentView: View {
         switch route {
         case .home:
             quickActionHomeSelection = 0
+            quickActionFocusedField = nil
         case .saveSnippet:
             prepareSnippetDraft(for: item)
+            DispatchQueue.main.async {
+                quickActionFocusedField = .snippetTrigger
+            }
         case .confirmDelete:
+            quickActionFocusedField = nil
             break
         }
     }
@@ -1528,15 +1484,14 @@ struct HistoryContentView: View {
 
         do {
             try snippetStore.saveSnippet(
-                title: snippetDraftTitle,
+                title: "",
                 trigger: snippetDraftTrigger,
                 content: content
             )
-            let normalizedTrigger = Snippet.normalizeTrigger(snippetDraftTrigger)
             quickActionRoute = .home
+            quickActionFocusedField = nil
             quickActionError = nil
-            quickActionMessage = "Saved snippet :\(normalizedTrigger)"
-            snippetDraftTitle = ""
+            quickActionMessage = nil
             snippetDraftTrigger = ""
             snippetDraftContent = ""
         } catch {
@@ -1588,7 +1543,9 @@ struct HistoryContentView: View {
                 guard options.indices.contains(quickActionHomeSelection) else { return }
                 activateQuickAction(options[quickActionHomeSelection], for: item)
             case .saveSnippet:
-                break
+                if quickActionFocusedField == .snippetTrigger {
+                    saveSnippetFromQuickActions()
+                }
             case .confirmDelete:
                 deleteSelectedItem(item)
             }
@@ -1607,6 +1564,16 @@ struct HistoryContentView: View {
     private func selectResult(at index: Int) {
         selectedIndex = index
         selectedID = filteredResults[safe: index]?.selectionID
+    }
+
+    private func beginKeyboardNavigation() {
+        scrollTrigger = true
+        suppressHoverSelectionUntil = Date().addingTimeInterval(0.35)
+    }
+
+    private func handleHoverSelection(at index: Int) {
+        guard Date() >= suppressHoverSelectionUntil else { return }
+        selectResult(at: index)
     }
     
     private func syncSelection() {
@@ -1708,11 +1675,6 @@ struct HistoryContentView: View {
     
     private func snippetContent(_ snippet: Snippet) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if !snippet.title.isEmpty {
-                Text(snippet.title)
-                    .font(.system(size: 16, weight: .semibold))
-            }
-            
             Text(":\(snippet.trigger)")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundColor(.accentColor)
@@ -1767,6 +1729,7 @@ struct HistoryContentView: View {
         }
 
         if selectedIndex > 0 {
+            beginKeyboardNavigation()
             selectedIndex -= 1
         }
     }
@@ -1789,6 +1752,7 @@ struct HistoryContentView: View {
         }
 
         if selectedIndex < filteredResults.count - 1 {
+            beginKeyboardNavigation()
             selectedIndex += 1
         }
     }
@@ -1803,6 +1767,7 @@ struct HistoryContentView: View {
                 closeDetailOverlay()
             case .saveSnippet, .confirmDelete:
                 quickActionRoute = .home
+                quickActionFocusedField = nil
                 quickActionMessage = nil
                 quickActionError = nil
             }
@@ -1859,6 +1824,10 @@ extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
+}
+
+private enum QuickActionFocusedField: Hashable {
+    case snippetTrigger
 }
 
 /// Monitors global key events for the window
